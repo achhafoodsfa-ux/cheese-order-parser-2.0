@@ -178,11 +178,22 @@ def parse_quantity(line):
     if unit=="kg":return qty,"KG"
     return qty,"CTN" if qty>10 else "PKT"
 
+def is_customer_identifier(line):
+    """Return True for standalone customer/BP identifiers; never use these for product mapping."""
+    t = norm(line).strip()
+    if not t:
+        return False
+    # Common customer/BP formats: CFS-12345, CFS12345, BP-12345, BP12345.
+    return bool(re.fullmatch(r"(?:cfs|bp)[\s_-]*[0-9]{3,}", t, re.I))
+
 def parse_order(text, progress=None):
     lines=[x.strip() for x in str(text).splitlines() if x.strip()]; rows=[]; customer=""
     if progress: progress(0.05,"Reading order text…")
     for i,line in enumerate(lines):
-        if i==0 and not re.search(r"\d",line): customer=line.strip(); continue
+        if i==0 and not re.search(r"\d",line):
+            customer=line.strip(); continue
+        if is_customer_identifier(line):
+            continue
         code=find_product(line); qty,unit=parse_quantity(line)
         if not code or qty is None:
             rows.append({"Source":line,"Customer":customer,"FG Code":"UNMAPPED","Product":"","Input Qty":qty,"Input Unit":unit,"SAP Qty (PKT)":"","Status":"CHECK MAPPING"}); continue
