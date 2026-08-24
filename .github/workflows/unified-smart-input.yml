@@ -1,0 +1,167 @@
+name: Unified Smart Input UI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Unified Smart Input UI') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch app UI
+        shell: python
+        run: |
+          from pathlib import Path
+          app = Path('app.py')
+          text = app.read_text(encoding='utf-8')
+
+          text = text.replace('from streamlit_paste_button import paste_image_button\n', '')
+          if 'from streamlit_chat_prompt import prompt as smart_prompt' not in text:
+              text = text.replace('from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text\n', 'from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text\nfrom streamlit_chat_prompt import prompt as smart_prompt\nfrom streamlit.components.v1 import html as components_html\n')
+
+          start = text.index('order_tab,teach_tab,excel_tab=st.tabs([')
+          teach_start = text.index('with teach_tab:', start)
+
+          new_order = r'''order_tab,teach_tab,excel_tab=st.tabs(["🤖 Smart Order Parser","🎓 Teach / Save Rule","📊 Excel / CSV"])
+
+with order_tab:
+    st.markdown("### 🧀 Smart Input")
+    st.caption("One input for everything: type/paste WhatsApp text, paste a screenshot with Ctrl+V, drag images, or attach multiple Excel/PDF/CSV/Word files.")
+
+    left, right = st.columns([0.42, 0.58], gap="large")
+
+    with left:
+        with st.container(border=True):
+            st.markdown("**📥 INPUT — Text / Screenshot / Files**")
+            smart = smart_prompt(
+                name="cheese_universal_input",
+                key="cheese_universal_input",
+                placeholder="Type/paste WhatsApp order • Ctrl+V screenshot • drag image here",
+                main_bottom=False,
+                max_image_size=10 * 1024 * 1024,
+            )
+            st.caption("Images: Ctrl+V or drag/drop directly into the prompt. Excel/PDF/CSV/Word: use the attachment area below — all part of the same Smart Input box.")
+            universal_files = st.file_uploader(
+                "📎 Drop multiple files here — Excel / CSV / PDF / Word / Images / TXT",
+                type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),
+                accept_multiple_files=True,
+                key="universal_files",
+                label_visibility="visible",
+            )
+            parse_files = st.button("🚀 Parse attached files", type="primary", use_container_width=True, key="parse_universal_files")
+
+    def _copy_button(label, value, key):
+        import html as _html
+        safe = _html.escape(value).replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
+        components_html(f'''<button style="width:100%;padding:8px 12px;border:1px solid #aaa;border-radius:8px;background:#fff;cursor:pointer;font-weight:600;" onclick="navigator.clipboard.writeText(`{safe}`).then(()=>this.innerText='✅ Copied')">{label}</button>''', height=42)
+
+    def _render_customer_block(customer, rows, idx):
+        ok=[r for r in rows if r.get("Status")=="OK"]
+        if not ok:
+            return
+        merged={}
+        for r in ok:
+            merged[r["FG Code"]]=merged.get(r["FG Code"],0)+int(r["SAP Qty (PKT)"])
+        sap="\n".join(sap_line(c,q) for c,q in merged.items())
+        with st.container(border=True):
+            st.markdown(f"#### {customer or 'UNKNOWN CUSTOMER'}")
+            st.code(sap, language="text")
+            _copy_button("📋 Copy SAP Order", sap, f"copy_{idx}")
+            bad=[r for r in rows if r.get("Status")!="OK"]
+            if bad:
+                st.warning("Some lines need manual checking.")
+
+    with right:
+        st.markdown("### 📤 Customer-wise SAP Output")
+        results=[]
+
+        if smart is not None:
+            if getattr(smart, "text", None):
+                try:
+                    ai_result=ai_parse_order_text(smart.text)
+                    parser_text=ai_to_parser_text(ai_result)
+                    customer=ai_result.get("customer_name", "")
+                    if parser_text.strip():
+                        mapped_customer, rows = parse_order(parser_text)
+                        results.append((customer or mapped_customer, rows))
+                except Exception as exc:
+                    st.error(f"Text parsing error: {exc}")
+            for image in (getattr(smart, "images", None) or []):
+                try:
+                    import base64
+                    image_bytes=base64.b64decode(image.data) if getattr(image, "format", "") == "base64" else image.data
+                    ai_result=ai_parse_order_image(image_bytes)
+                    parser_text=ai_to_parser_text(ai_result)
+                    customer=ai_result.get("customer_name", "")
+                    if parser_text.strip():
+                        mapped_customer, rows = parse_order(parser_text)
+                        results.append((customer or mapped_customer, rows))
+                except Exception as exc:
+                    st.error(f"Image parsing error: {exc}")
+
+        if parse_files:
+            for f in universal_files or []:
+                try:
+                    ext=Path(f.name).suffix.lower()
+                    if ext in IMAGE_EXTS:
+                        ai_result=ai_parse_order_image(f.getvalue())
+                        parser_text=ai_to_parser_text(ai_result)
+                        customer=ai_result.get("customer_name", "")
+                        if parser_text.strip():
+                            mapped_customer, rows=parse_order(parser_text)
+                            results.append((customer or mapped_customer, rows))
+                    elif ext in TABULAR_EXTS:
+                        kind,content=read_uploaded_file(f)
+                        result=process_tabular(content)
+                        if not result.empty:
+                            for customer,group in result.groupby("Customer", dropna=False):
+                                rows=[]
+                                for _,r in group.iterrows():
+                                    rows.append({"Status":"OK","FG Code":r["FG Code"],"Product":r["Product"],"Input Qty":r["SAP Qty (PKT)"],"Input Unit":"PKT","SAP Qty (PKT)":r["SAP Qty (PKT)"],"Source":f.name})
+                                results.append((str(customer or "UNKNOWN CUSTOMER"),rows))
+                    else:
+                        kind,content=read_uploaded_file(f)
+                        ai_result=ai_parse_order_text(str(content))
+                        parser_text=ai_to_parser_text(ai_result)
+                        customer=ai_result.get("customer_name", "")
+                        if parser_text.strip():
+                            mapped_customer, rows=parse_order(parser_text)
+                            results.append((customer or mapped_customer, rows))
+                except Exception as exc:
+                    st.error(f"{f.name}: {exc}")
+
+        if results:
+            for idx,(customer,rows) in enumerate(results,1):
+                _render_customer_block(customer, rows, idx)
+        else:
+            st.info("Your parsed customer orders will appear here, one below another.")
+
+'''
+
+          text = text[:start] + new_order + text[teach_start:]
+          app.write_text(text, encoding='utf-8')
+
+      - name: Validate
+        run: |
+          python -m py_compile app.py ai_order_parser.py
+          grep -q 'streamlit_chat_prompt' app.py
+          grep -q 'Smart Input' app.py
+          grep -q 'accept_multiple_files=True' app.py
+
+      - name: Commit and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py requirements.txt
+          git commit -m "Unified Smart Input UI"
+          git rm .github/workflows/unified-smart-input.yml
+          git commit -m "Remove temporary smart input patch"
+          git push
