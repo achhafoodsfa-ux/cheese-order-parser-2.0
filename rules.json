@@ -1,57 +1,22 @@
 {
   "product_aliases": [
-    {
-      "aliases": [
-        "50/50 shredd",
-        "50/50 shredded",
-        "50 50 shredd",
-        "50 50 shredded",
-        "imported 50/50 shredd",
-        "imported 50/50 shredded",
-        "imported 50/50 mozzarella cheddar shredd",
-        "imported 50/50 mozzarella/cheddar shredded"
-      ],
-      "item_code": "FG-03-0024",
-      "master_name": "Imported 50/50 Mozzarella/Cheddar Shredded 2 KG (Un-Branded)",
-      "pack_kg": 2,
-      "pcs_ctn": 5,
-      "priority": 100
-    },
-    {
-      "aliases": [
-        "classic cheddar shredd",
-        "classic cheddar shredded",
-        "classic cheddar shred",
-        "classic cheddar shred 2kg",
-        "classic cheddar shredded 2kg"
-      ],
-      "item_code": "FG-02-0066",
-      "master_name": "Classic Cheddar Shred 2KG (Un-Branded)",
-      "pack_kg": 2,
-      "pcs_ctn": 5,
-      "priority": 100
-    },
-    {
-      "aliases": [
-        "classic mozzarella shredd",
-        "classic mozzarella shredded",
-        "classic mozzarella shred 2kg",
-        "classic mozzarella shredded 2kg",
-        "classic shredd"
-      ],
-      "item_code": "FG-02-0036",
-      "master_name": "Classic Mozzarella Shredded 2 KG (Un-Branded)",
-      "pack_kg": 2,
-      "pcs_ctn": 5,
-      "priority": 90,
-      "note": "Use only when the order does not explicitly indicate cheddar. Explicit 'Classic Cheddar Shred' maps to FG-02-0066."
-    }
+    {"alias": "50/50 shredd", "code": "FG-03-0024", "note": "Imported 50/50 Mozzarella/Cheddar Shredded 2 KG"},
+    {"alias": "50/50 shredded", "code": "FG-03-0024", "note": "Imported 50/50 Mozzarella/Cheddar Shredded 2 KG"},
+    {"alias": "imported 50/50 shredd", "code": "FG-03-0024", "note": "Imported 50/50 Mozzarella/Cheddar Shredded 2 KG"},
+    {"alias": "imported 50/50 shredded", "code": "FG-03-0024", "note": "Imported 50/50 Mozzarella/Cheddar Shredded 2 KG"},
+    {"alias": "classic cheddar shredd", "code": "FG-02-0066", "note": "Classic Cheddar Shred 2KG"},
+    {"alias": "classic cheddar shredded", "code": "FG-02-0066", "note": "Classic Cheddar Shred 2KG"},
+    {"alias": "classic cheddar shred 2kg", "code": "FG-02-0066", "note": "Classic Cheddar Shred 2KG"},
+    {"alias": "classic mozzarella shredd", "code": "FG-02-0036", "note": "Classic Mozzarella Shredded 2 KG"},
+    {"alias": "classic mozzarella shredded", "code": "FG-02-0036", "note": "Classic Mozzarella Shredded 2 KG"},
+    {"alias": "classic shredd", "code": "FG-02-0036", "note": "Classic Mozzarella Shredded 2 KG when cheddar is not explicitly specified"}
   ],
   "quantity_rules": [],
   "customer_rules": [],
   "general_rules": [
-    "The supplied SAP product master is authoritative for product code mapping.",
-    "Prefer exact/explicit product-family matches over generic fuzzy matches.",
-    "Do not map Classic Cheddar Shred to Classic Mozzarella Shredded when 'cheddar' is explicitly present."
+    {"rule": "The supplied SAP product master is authoritative for product code mapping."},
+    {"rule": "Prefer explicit product-family matches over generic fuzzy matches."},
+    {"rule": "Classic Cheddar Shred maps to FG-02-0066; Classic Mozzarella Shredded maps to FG-02-0036."},
+    {"rule": "50/50 Shredded maps to Imported 50/50 Mozzarella/Cheddar Shredded 2 KG, FG-03-0024."}
   ]
 }
