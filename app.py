@@ -327,7 +327,6 @@ with order_tab:
     st.subheader("Smart Order Input")
     st.info("Type/paste an order and press **Enter** to start. Or drag & drop one or more files into the same input.")
     st.info("📋 Copy a WhatsApp screenshot, then click **Paste Image**. For files, use the large uploader below; drag & drop is supported there.")
-    ai_enabled = st.checkbox("🧠 Use AI Smart Parsing (recommended)", value=True, help="AI understands messy WhatsApp wording and screenshots. Final FG codes still come from your local product mapping/rules.")
 
     paste_result = paste_image_button("📋 Paste Image from Clipboard", key="paste_image_clipboard", errors="ignore")
     fallback_files = st.file_uploader(
@@ -360,19 +359,16 @@ with order_tab:
             try:
                 st.image(data, caption="Pasted from clipboard", use_container_width=True)
                 status.info("Step 1/4 — Reading pasted image…")
-                if ai_enabled:
-                    ai_result = ai_parse_order_image(data)
-                    extracted = ai_to_parser_text(ai_result)
-                    st.caption("🧠 AI interpretation used; FG mapping remains local/authoritative.")
-                else:
-                    extracted = ocr_image(data)
+                ai_result = ai_parse_order_image(data)
+                extracted = ai_to_parser_text(ai_result)
+                st.caption("🧠 AI assists order understanding; your local master/rules remain authoritative for FG mapping.")
                 progress.progress(0.35, text="Image reading completed")
                 with st.expander("🔎 AI/OCR interpretation", expanded=False):
                     st.text(extracted[:12000] if extracted else "[No readable order detected]")
                 if extracted.strip():
                     status.info("Step 3/4 — Mapping products and quantities…")
                     customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.65+v*0.25,0.90), text=t))
-                    if ai_enabled and ai_result.get("customer_name"):
+                    if ai_result.get("customer_name"):
                         customer = ai_result["customer_name"]
                     show_order_result(customer, rows, f"pasted_image_{pidx}")
                 else:
@@ -382,17 +378,13 @@ with order_tab:
 
         if message:
             status.info("Step 1/4 — Reading WhatsApp text…")
-            if ai_enabled:
-                ai_result = ai_parse_order_text(message)
-                parser_text = ai_to_parser_text(ai_result)
-                st.caption("🧠 AI interpretation used; customer codes are ignored for product mapping.")
-                with st.expander("🔎 AI interpretation", expanded=False):
-                    st.json(ai_result)
-            else:
-                ai_result = {"customer_name": "", "items": []}
-                parser_text = message
+            ai_result = ai_parse_order_text(message)
+            parser_text = ai_to_parser_text(ai_result)
+            st.caption("🧠 AI assists order understanding; customer codes are ignored for product mapping.")
+            with st.expander("🔎 AI interpretation", expanded=False):
+                st.json(ai_result)
             customer,rows=parse_order(parser_text,lambda v,t: progress.progress(v,text=t))
-            if ai_enabled and ai_result.get("customer_name"):
+            if ai_result.get("customer_name"):
                 customer = ai_result["customer_name"]
             status.info("Step 2/4 — Mapping products and quantities…")
             show_order_result(customer,rows,"chat_text")
@@ -406,11 +398,26 @@ with order_tab:
                     if result.empty:st.warning(f"{f.name}: no valid mapped rows found.")
                     else:st.success(f"{f.name}: {len(result)} mapped rows extracted.");st.dataframe(result,use_container_width=True)
                 else:
-                    extracted=str(content)
-                    with st.expander("🔎 Extracted text / OCR",expanded=False):st.text(extracted[:12000] if extracted else "[No text detected]")
+                    ext = Path(f.name).suffix.lower()
+                    if ext in IMAGE_EXTS:
+                        ai_result = ai_parse_order_image(f.getvalue())
+                        extracted = ai_to_parser_text(ai_result)
+                        st.caption("🧠 AI assisted image understanding; final FG mapping is local.")
+                        with st.expander("🔎 AI interpretation",expanded=False):st.json(ai_result)
+                        customer_name = ai_result.get("customer_name", "")
+                    else:
+                        extracted=str(content)
+                        ai_result = ai_parse_order_text(extracted)
+                        extracted = ai_to_parser_text(ai_result)
+                        st.caption("🧠 AI assisted text/document understanding; final FG mapping is local.")
+                        with st.expander("🔎 AI interpretation",expanded=False):st.json(ai_result)
+                        customer_name = ai_result.get("customer_name", "")
                     if extracted.strip():
-                        status.info("Step 3/4 — Parsing extracted order…");customer,rows=parse_order(extracted,lambda v,t: progress.progress(min(0.65+v*0.25,0.90),text=t));show_order_result(customer,rows,f.name)
-                    else:st.error(f"{f.name}: no readable text was detected.")
+                        status.info("Step 3/4 — Mapping products and quantities…")
+                        customer,rows=parse_order(extracted,lambda v,t: progress.progress(min(0.65+v*0.25,0.90),text=t))
+                        customer = customer_name or customer
+                        show_order_result(customer,rows,f.name)
+                    else:st.error(f"{f.name}: no readable order was detected.")
             except Exception as e:st.error(f"{f.name}: {e}")
         progress.progress(1.0,text="Done — order processed and validated.");status.success("Step 4/4 — Complete. Review the Triple-check table before SAP paste.")
 
