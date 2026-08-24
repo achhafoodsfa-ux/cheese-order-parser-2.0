@@ -1,0 +1,77 @@
+name: Multi Customer Order Parser Fix
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Multi-customer parser fix') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch AI parser and main UI
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          ai = Path('ai_order_parser.py')
+          t = ai.read_text(encoding='utf-8')
+
+          # Replace the schema/instructions header with multi-order schema while preserving the existing fallback/client code below.
+          start = t.index('SCHEMA: Dict[str, Any] = {')
+          instr_start = t.index('INSTRUCTIONS = """')
+          header = '''SCHEMA: Dict[str, Any] = {\n    "type": "object",\n    "properties": {\n        "orders": {\n            "type": "array",\n            "items": {\n                "type": "object",\n                "properties": {\n                    "customer_name": {"type": "string"},\n                    "items": {\n                        "type": "array",\n                        "items": {\n                            "type": "object",\n                            "properties": {\n                                "raw_text": {"type": "string"},\n                                "product": {"type": "string"},\n                                "quantity": {"type": "number"},\n                                "unit": {"type": "string", "enum": ["CTN", "PKT", "KG", "PCS"]}\n                            },\n                            "required": ["raw_text", "product", "quantity", "unit"],\n                            "additionalProperties": False\n                        }\n                    }\n                },\n                "required": ["customer_name", "items"],\n                "additionalProperties": False\n            }\n        }\n    },\n    "required": ["orders"],\n    "additionalProperties": False\n}\n\n'''
+          t = t[:start] + header + t[instr_start:]
+
+          instr_end = t.index('""".strip()', instr_start) + len('""".strip()')
+          instructions = '''INSTRUCTIONS = """\nYou are the order-understanding layer for a cheese order parser.\nIMPORTANT: The input may contain MULTIPLE customer orders, especially a WhatsApp screenshot containing many orders.\nFirst identify every distinct customer name/order block. Then create ONE separate order object for EACH customer. There may be 1, 10, 20 or more customers. NEVER merge different customers into one order.\nEach item belongs only to the nearest/clearest customer block it came from. Preserve customer boundaries from the visual/text layout.\nNever invent or return SAP FG codes. Customer codes/IDs (CFS..., BP..., phone numbers, invoice numbers) are NOT product identifiers and must be ignored for product mapping.\nProduct mapping is performed later by the local product master and rules.\nBusiness wording rules: Classic shredd/shredded = Classic Mozzarella Shredded; 50/50 shredded = Imported 50/50 Mozzarella/Cheddar Shredded 2 KG; for Top Cow only White Shredded = White Dice and Yellow Shredded = Yellow Dice; otherwise preserve Dice vs Shredded vs Block exactly.\nBox, boxes, carton, cartons and CTN are the same unit: CTN.\nIgnore greetings, delivery notes, addresses, dates, prices and unrelated chatter.\nReturn every identifiable customer/order even when some items are ambiguous. Do not drop a customer merely because one line is unclear.\n""".strip()'''
+          t = t[:instr_start] + instructions + t[instr_end:]
+
+          # Add multi-order entry points immediately before ai_to_parser_text.
+          marker = 'def ai_to_parser_text(result: Dict[str, Any]) -> str:'
+          idx = t.index(marker)
+          funcs = '''def _normalise_multi_result(result: Dict[str, Any]) -> Dict[str, Any]:\n    if "orders" in result:\n        return result\n    # Backward compatibility for an older single-order response.\n    return {"orders": [{"customer_name": result.get("customer_name", ""), "items": result.get("items", [])}]}\n\n\ndef ai_parse_orders_text(text: str) -> Dict[str, Any]:\n    return _call_ai(\n        lambda: _parse_response(_client().responses.create(\n            model=MODEL, store=False, instructions=INSTRUCTIONS, input=text,\n            text={"format": {"type": "json_schema", "name": "cheese_multi_orders", "schema": SCHEMA, "strict": True}},\n        )),\n        lambda reason: {"orders": [{"customer_name": "", "items": []}], "_fallback": True, "_fallback_text": text, "_fallback_reason": reason},\n    )\n\n\ndef ai_parse_orders_image(image_bytes: bytes) -> Dict[str, Any]:\n    data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")\n    return _call_ai(\n        lambda: _parse_response(_client().responses.create(\n            model=MODEL, store=False, instructions=INSTRUCTIONS,\n            input=[{"role": "user", "content": [\n                {"type": "input_text", "text": "Read this WhatsApp screenshot. Detect every distinct customer/order block and keep each order separate."},\n                {"type": "input_image", "image_url": data_url, "detail": "high"}\n            ]}],\n            text={"format": {"type": "json_schema", "name": "cheese_multi_orders", "schema": SCHEMA, "strict": True}},\n        )),\n        lambda reason: {"orders": [], "_fallback": True, "_fallback_text": "", "_fallback_image": image_bytes, "_fallback_reason": reason},\n    )\n\n\n'''
+          t = t[:idx] + funcs + t[idx:]
+          ai.write_text(t, encoding='utf-8')
+
+          app = Path('app.py')
+          a = app.read_text(encoding='utf-8')
+          a = a.replace('from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text', 'from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text, ai_parse_orders_text, ai_parse_orders_image, _normalise_multi_result')
+
+          # Add a renderer for multiple customer orders before the existing main page heading.
+          marker = 'st.title("🧀 Cheese Order Parser → SAP")'
+          renderer = '''def render_multi_ai_orders(result, source_label, progress=None):\n    result = _normalise_multi_result(result)\n    orders = result.get("orders", [])\n    if result.get("_fallback"):\n        return False\n    if not orders:\n        st.warning("AI did not detect any separate customer orders in this input.")\n        return True\n    st.success(f"Detected {len(orders)} separate customer order(s).")\n    for oi, order in enumerate(orders, 1):\n        customer = str(order.get("customer_name", "")).strip() or f"ORDER {oi}"\n        lines = []\n        for item in order.get("items", []):\n            qty = item.get("quantity")\n            unit = item.get("unit", "PKT")\n            product = item.get("product", "")\n            if product and qty not in (None, ""):\n                lines.append(f"{qty} {unit} {product}")\n        with st.container(border=True):\n            st.markdown(f"### {oi}. {customer}")\n            if not lines:\n                st.warning("No readable product lines detected for this customer.")\n                continue\n            parser_text = customer + "\\n" + "\\n".join(lines)\n            c, rows = parse_order(parser_text, progress)\n            show_order_result(customer, rows, f"{source_label}_{oi}")\n    return True\n\n\n'''
+          a = a.replace(marker, renderer + marker, 1)
+
+          # Pasted image: use multi-order AI first, fallback handled in helper.
+          a = a.replace('ai_result = ai_parse_order_image(data)\n                extracted = ai_to_parser_text(ai_result)', 'ai_result = ai_parse_orders_image(data)\n                if not render_multi_ai_orders(ai_result, f"pasted_image_{pidx}", progress):\n                    ai_result = ai_parse_order_image(data)\n                extracted = ai_to_parser_text(ai_result)', 1)
+
+          # Text input: use multi-order AI first.
+          old = '''            ai_result = ai_parse_order_text(message)\n            parser_text = ai_to_parser_text(ai_result)\n            st.caption("🧠 AI assists understanding; customer codes are ignored for product mapping.")\n            with st.expander("🔎 AI interpretation", expanded=False):\n                st.json(ai_result)\n            customer,rows=parse_order(parser_text,lambda v,t: progress.progress(v,text=t))\n            if ai_result.get("customer_name"):\n                customer = ai_result["customer_name"]\n            status.info("Step 2/4 — Mapping products and quantities…")\n            show_order_result(customer,rows,"chat_text")'''
+          new = '''            ai_result = ai_parse_orders_text(message)\n            if render_multi_ai_orders(ai_result, "chat_text", progress):\n                pass\n            else:\n                parser_text = ai_to_parser_text(ai_result)\n                customer,rows=parse_order(parser_text,lambda v,t: progress.progress(v,text=t))\n                status.info("Step 2/4 — Mapping products and quantities…")\n                show_order_result(customer,rows,"chat_text")'''
+          if old not in a: raise SystemExit('text block not found')
+          a = a.replace(old, new, 1)
+
+          app.write_text(a, encoding='utf-8')
+
+      - name: Validate
+        run: python -m py_compile app.py ai_order_parser.py
+
+      - name: Commit and remove workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py ai_order_parser.py
+          git commit -m "Multi-customer parser fix"
+          git rm .github/workflows/multi-order-fix.yml
+          git commit -m "Remove temporary multi-order patch workflow"
+          git push
