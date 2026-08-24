@@ -1,4 +1,6 @@
 import io
+import json
+import os
 import re
 from pathlib import Path
 
@@ -12,7 +14,7 @@ from docx import Document
 
 st.set_page_config(page_title="Cheese SAP Order Parser", page_icon="🧀", layout="wide")
 
-# Existing master mapping is kept intact; smart input/OCR is added below.
+# Existing master mapping is kept intact.
 PRODUCTS = {
 "FG-02-0012":{"name":"Classic Cheddar Block","pack":"block","pcs_ctn":10,"kg":2,"keywords":["classic cheddar","classic chadder","classic cheddar block"]},
 "FG-02-0068":{"name":"Top Cow Cheddar Block","pack":"block","pcs_ctn":10,"kg":2,"keywords":["top cow cheddar block","top cow chadder block"]},
@@ -90,13 +92,40 @@ PRODUCTS = {
 "FG-02-0182":{"name":"Allana Pizza Cheese 50/50 White W.Poly","pack":"regular","pcs_ctn":5,"kg":2,"keywords":["allana wpoly 50/50"]},
 }
 
+RULES_FILE = Path("rules.json")
+
 def norm(s):
-    s=str(s).lower().strip(); replacements={"shared":"shred","shraded":"shredded","shrad":"shred","shrd":"shred","shreded":"shredded","chadder":"cheddar","chaddar":"cheddar","cheder":"cheddar","cheedar":"cheddar","chesse":"cheese","accha":"achha","acha":"achha","locl":"local","lockl":"local","70.30":"70/30"}
+    s=str(s).lower().strip()
+    replacements={"shared":"shred","shraded":"shredded","shrad":"shred","shrd":"shred","shreded":"shredded","chadder":"cheddar","chaddar":"cheddar","cheder":"cheddar","cheedar":"cheddar","chesse":"cheese","accha":"achha","acha":"achha","locl":"local","lockl":"local","70.30":"70/30"}
     for a,b in replacements.items(): s=s.replace(a,b)
     return re.sub(r"\s+"," ",s)
 
+def load_rules():
+    default={"product_aliases":[],"quantity_rules":[],"customer_rules":[],"general_rules":[]}
+    try:
+        if RULES_FILE.exists():
+            with RULES_FILE.open("r",encoding="utf-8") as f: return {**default,**json.load(f)}
+    except Exception: pass
+    return default
+
+def save_rules(rules):
+    with RULES_FILE.open("w",encoding="utf-8") as f: json.dump(rules,f,ensure_ascii=False,indent=2)
+    return True
+
+RULES=load_rules()
+
+def apply_saved_aliases(text):
+    t=norm(text)
+    for rule in RULES.get("product_aliases",[]):
+        alias=norm(rule.get("alias",""));code=rule.get("code","")
+        if alias and code in PRODUCTS and alias in t:return code
+    return None
+
 def find_product(text):
-    t=norm(text); priority=[("red mozz blk","FG-01-0006"),("red mozzarella block","FG-01-0006"),("blue shredd","FG-01-0042"),("blue shred","FG-01-0042"),("danish mozzarella block","FG-01-0018"),("danish mozz block","FG-01-0018"),("classic mozzarella block","FG-01-0012"),("classic mozz block","FG-01-0012"),("burger slice","FG-02-0028"),("orange slice","FG-02-0028")]
+    t=norm(text)
+    saved=apply_saved_aliases(t)
+    if saved:return saved
+    priority=[("red mozz blk","FG-01-0006"),("red mozzarella block","FG-01-0006"),("blue shredd","FG-01-0042"),("blue shred","FG-01-0042"),("danish mozzarella block","FG-01-0018"),("danish mozz block","FG-01-0018"),("classic mozzarella block","FG-01-0012"),("classic mozz block","FG-01-0012"),("burger slice","FG-02-0028"),("orange slice","FG-02-0028")]
     for key,code in priority:
         if key in t:return code
     if "slice" in t:
@@ -133,8 +162,9 @@ def find_product(text):
     return sorted(candidates,reverse=True)[0][1] if candidates else None
 
 def parse_quantity(line):
-    t=norm(line); m=re.search(r"(\d+(?:\.\d+)?)\s*kg\s+.*burger\s*(?:/|or)?\s*(?:orange)?\s*slice",t)
-    if m:return int(float(m.group(1))),"PKT"
+    t=norm(line)
+    m=re.search(r"(\d+(?:\.\d+)?)\s*kg\s+.*burger\s*(?:/|or)?\s*(?:orange)?\s*slice",t)
+    if m:return int(float(m.group(1)),),"PKT"
     m=re.search(r"(\d+(?:\.\d+)?)\s*(ctn|carton|cartons|pkt|packet|packets|pcs|pc|units?|kg)?\b",t)
     if not m:return None,None
     qty=float(m.group(1)); unit=(m.group(2) or "").lower(); qty=int(qty) if qty.is_integer() else qty
@@ -143,8 +173,9 @@ def parse_quantity(line):
     if unit=="kg":return qty,"KG"
     return qty,"CTN" if qty>10 else "PKT"
 
-def parse_order(text):
+def parse_order(text, progress=None):
     lines=[x.strip() for x in str(text).splitlines() if x.strip()]; rows=[]; customer=""
+    if progress: progress(0.05,"Reading order text…")
     for i,line in enumerate(lines):
         if i==0 and not re.search(r"\d",line): customer=line.strip(); continue
         code=find_product(line); qty,unit=parse_quantity(line)
@@ -152,6 +183,8 @@ def parse_order(text):
             rows.append({"Source":line,"Customer":customer,"FG Code":"UNMAPPED","Product":"","Input Qty":qty,"Input Unit":unit,"SAP Qty (PKT)":"","Status":"CHECK MAPPING"}); continue
         p=PRODUCTS[code]; sap_qty=round(qty/p["kg"]) if unit=="KG" else int(qty*p["pcs_ctn"]) if unit=="CTN" else int(qty)
         rows.append({"Source":line,"Customer":customer,"FG Code":code,"Product":p["name"],"Input Qty":qty,"Input Unit":unit,"SAP Qty (PKT)":sap_qty,"Status":"OK"})
+        if progress: progress(min(0.70,0.10+0.55*(i+1)/max(1,len(lines))),f"Mapping line {i+1}/{len(lines)}…")
+    if progress: progress(0.75,"Running quantity and SAP validation…")
     return customer,rows
 
 def sap_line(code,qty):return f"{code}\t\t{int(qty)}\t\t\t\t\tHO-WH\t\tCHEESE"
@@ -183,7 +216,6 @@ def process_tabular(df):
         output.append({"Customer":customer,"FG Code":code,"Product":PRODUCTS[code]["name"],"SAP Qty (PKT)":sap_qty,"Source":"Excel","Status":"OK"})
     return pd.DataFrame(output)
 
-# SMART MULTI-FORMAT INPUT / OCR
 IMAGE_EXTS={"png","jpg","jpeg","webp","bmp","tif","tiff"};TABULAR_EXTS={"xlsx","xls","csv"};TEXT_EXTS={"txt"};PDF_EXTS={"pdf"};DOC_EXTS={"docx"}
 
 def clean_ocr_text(text):
@@ -244,38 +276,126 @@ def show_order_result(customer,rows,source_label):
     check_df=pd.DataFrame(ok)
     if not check_df.empty:st.subheader("Triple-check");st.dataframe(check_df[["Source","FG Code","Product","Input Qty","Input Unit","SAP Qty (PKT)"]],use_container_width=True)
 
-st.title("🧀 Cheese Order Parser → SAP")
-st.caption("Smart input: paste WhatsApp orders or upload screenshots, images, PDF, Excel, CSV or Word files. The app extracts the order first, then applies the existing product/quantity mapping.")
-with st.sidebar:
-    st.header("Rules");st.write("• SAP quantity = PKT/Units");st.write("• CTN is converted automatically");st.write("• 2kg block = 10 PKT/CTN");st.write("• 2kg shred/dice = 5 PKT/CTN");st.write("• Nivora 2.5kg = 4 PKT/CTN");st.write("• Slice = 18 PKT/CTN");st.write("• 800gm slice preferred when explicitly stated");st.write("• Red mozz blk = Achha Mozz Block");st.write("• Blue shredd = Achha Mozz Shredded");st.write("• Danish Mozz Block = Danish, never Achha")
+def teach_rule(rule_text, category="general", customer=""):
+    text=rule_text.strip()
+    if not text:return False,"Write a teaching rule first."
+    rules=load_rules()
+    low=norm(text)
+    # Natural-language product alias teaching: "X means FG-02-0102" / "X = FG-02-0102"
+    m=re.search(r"(.+?)\s*(?:means|=|is)\s*(FG-\d{2}-\d{4})\b",text,re.I)
+    if m and m.group(2).upper() in PRODUCTS:
+        alias=m.group(1).strip(" :-")
+        code=m.group(2).upper()
+        rules.setdefault("product_aliases",[])
+        rules["product_aliases"]=[r for r in rules["product_aliases"] if norm(r.get("alias"))!=norm(alias)]
+        rules["product_aliases"].append({"alias":alias,"code":code,"note":text})
+        save_rules(rules);return True,f"Saved product alias: {alias} → {code}"
+    entry={"rule":text,"customer":customer.strip(),"category":category}
+    key="customer_rules" if customer.strip() or category=="customer" else "general_rules"
+    rules.setdefault(key,[]).append(entry);save_rules(rules)
+    return True,"Teaching rule saved and will be applied as persistent guidance."
 
-tab1,tab2=st.tabs(["🤖 Smart Order Input","📊 Excel / CSV"])
-with tab1:
-    st.subheader("Upload ANY ORDER SOURCE")
-    st.info("Upload WhatsApp screenshots, JPG/PNG photos, PDF order sheets, XLSX/XLS/CSV, DOCX or TXT. Multiple files are supported.")
-    uploaded=st.file_uploader("Drop files here",type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),accept_multiple_files=True)
-    text=st.text_area("Or paste WhatsApp order / message",height=220,placeholder="Customer Name\n3 CTN 70/30 local\n1 CTN 70/30 new\n1 CTN mozzarella shredded")
-    if st.button("🚀 Read & Parse Order",type="primary"):
-        if not uploaded and not text.strip():st.warning("Upload an order file or paste the order text first.")
-        else:
-            if text.strip():
-                customer,rows=parse_order(text);show_order_result(customer,rows,"pasted")
-            for f in uploaded or []:
-                st.markdown("---");st.markdown(f"### 📎 {f.name}")
-                try:
-                    kind,content=read_uploaded_file(f)
-                    if kind in ("excel","csv"):
-                        result=process_tabular(content)
-                        if result.empty:st.warning(f"{f.name}: no valid mapped rows found.")
-                        else:st.success(f"{f.name}: {len(result)} mapped rows extracted.");st.dataframe(result,use_container_width=True)
-                    else:
-                        extracted=str(content)
-                        with st.expander("🔎 Extracted text (OCR / file reader)",expanded=False):st.text(extracted[:12000] if extracted else "[No text detected]")
-                        if extracted.strip():
-                            customer,rows=parse_order(extracted);show_order_result(customer,rows,f.name)
-                        else:st.error(f"{f.name}: no readable text was detected.")
-                except Exception as e:st.error(f"{f.name}: {e}")
-with tab2:
+st.title("🧀 Cheese Order Parser → SAP")
+st.caption("Smart input + persistent teaching. Press Enter to start processing. Drag/drop WhatsApp screenshots, images, PDFs, Excel, CSV, Word files or paste an order.")
+
+with st.sidebar:
+    st.header("🧠 Parser Memory")
+    st.metric("Saved product aliases",len(RULES.get("product_aliases",[])))
+    st.metric("Saved rules",len(RULES.get("general_rules",[]))+len(RULES.get("customer_rules",[])))
+    st.caption("Rules are stored in rules.json. They survive normal app reruns while the app filesystem persists.")
+    if RULES.get("product_aliases"):
+        st.subheader("Learned aliases")
+        for r in RULES["product_aliases"][-12:]:st.write(f"• **{r['alias']}** → `{r['code']}`")
+    st.divider()
+    st.write("• SAP quantity = PKT/Units")
+    st.write("• CTN is converted automatically")
+    st.write("• 2kg block = 10 PKT/CTN")
+    st.write("• 2kg shred/dice = 5 PKT/CTN")
+    st.write("• Nivora 2.5kg = 4 PKT/CTN")
+    st.write("• Slice = 18 PKT/CTN")
+    st.write("• Red mozz blk = Achha Mozz Block")
+    st.write("• Blue shredd = Achha Mozz Shredded")
+    st.write("• Danish Mozz Block = Danish, never Achha")
+
+order_tab,teach_tab,excel_tab=st.tabs(["🤖 Smart Order Input","🎓 Teach / Save Rule","📊 Excel / CSV"])
+
+with order_tab:
+    st.subheader("Smart Order Input")
+    st.info("Type/paste an order and press **Enter** to start. Or drag & drop one or more files into the same input.")
+    try:
+        submission=st.chat_input("Paste WhatsApp order here… press Enter to parse",accept_file=True,file_type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),max_uploads=10)
+    except TypeError:
+        submission=st.chat_input("Paste WhatsApp order here… press Enter to parse")
+        st.caption("File upload compatibility mode: use the uploader below if your Streamlit version does not support files in chat input.")
+    fallback_files=st.file_uploader("Or drag & drop files here",type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),accept_multiple_files=True,key="smart_files")
+    fallback_text=st.text_area("Or paste text here",height=130,placeholder="Customer Name\n3 CTN 70/30 local\n1 CTN 70/30 new",key="fallback_text")
+    run_fallback=st.button("🚀 Process pasted text / files",type="primary")
+
+    files=[];message=""
+    if submission:
+        message=getattr(submission,"text","") or ""
+        submitted_files=getattr(submission,"files",[]) or []
+        files.extend(submitted_files)
+    if run_fallback:
+        message=fallback_text.strip()
+        files.extend(fallback_files or [])
+
+    if submission or run_fallback:
+        progress=st.progress(0,text="Starting parser…")
+        status=st.empty()
+        if message:
+            status.info("Step 1/4 — Reading WhatsApp text…")
+            customer,rows=parse_order(message,lambda v,t: progress.progress(v,text=t))
+            status.info("Step 2/4 — Mapping products and quantities…")
+            show_order_result(customer,rows,"chat_text")
+        for idx,f in enumerate(files,1):
+            st.markdown("---")
+            st.markdown(f"### 📎 {f.name}")
+            try:
+                status.info(f"Step 1/4 — Reading {f.name}…")
+                kind,content=read_uploaded_file(f)
+                progress.progress(min(0.35+idx/max(1,len(files))*0.25,0.60),text=f"Extracted {f.name}")
+                if kind in ("excel","csv"):
+                    status.info("Step 2/4 — Processing spreadsheet rows…")
+                    result=process_tabular(content)
+                    if result.empty:st.warning(f"{f.name}: no valid mapped rows found.")
+                    else:st.success(f"{f.name}: {len(result)} mapped rows extracted.");st.dataframe(result,use_container_width=True)
+                else:
+                    extracted=str(content)
+                    with st.expander("🔎 Extracted text / OCR",expanded=False):st.text(extracted[:12000] if extracted else "[No text detected]")
+                    if extracted.strip():
+                        status.info("Step 3/4 — Parsing extracted order…")
+                        customer,rows=parse_order(extracted,lambda v,t: progress.progress(min(0.65+v*0.25,0.90),text=t))
+                        show_order_result(customer,rows,f.name)
+                    else:st.error(f"{f.name}: no readable text was detected.")
+            except Exception as e:st.error(f"{f.name}: {e}")
+        progress.progress(1.0,text="Done — order processed and validated.")
+        status.success("Step 4/4 — Complete. Review the Triple-check table before SAP paste.")
+
+with teach_tab:
+    st.subheader("🎓 Teach the Parser")
+    st.write("Write a rule once and save it. Product aliases can be written naturally, for example: **'mf white dice = FG-02-0102'**.")
+    teach_text=st.text_area("Teaching / rule",height=180,placeholder="Example: Customer ABC calls Nivora MF White Dice 'MF White'. Use FG-02-0102.",key="teach_text")
+    c1,c2=st.columns([1,1])
+    with c1:teach_category=st.selectbox("Rule type",["general","customer","product alias","quantity / conversion"])
+    with c2:teach_customer=st.text_input("Customer (optional)",placeholder="Only if this rule is customer-specific")
+    if st.button("💾 Save & Remember Rule",type="primary"):
+        category="customer" if teach_category=="customer" else ("general" if teach_category=="product alias" else teach_category)
+        ok,msg=teach_rule(teach_text,category,teach_customer)
+        if ok:st.success(msg);RULES=load_rules()
+        else:st.warning(msg)
+    st.divider()
+    st.subheader("Saved memory")
+    rules=load_rules()
+    aliases=rules.get("product_aliases",[])
+    if aliases:st.dataframe(pd.DataFrame(aliases),use_container_width=True)
+    for label,key in [("General rules","general_rules"),("Customer rules","customer_rules"),("Quantity / conversion rules","quantity_rules")]:
+        items=rules.get(key,[])
+        if items:
+            st.markdown(f"**{label}**")
+            for i,r in enumerate(items,1):st.write(f"{i}. {r.get('rule','')}" + (f" — Customer: {r.get('customer')}" if r.get('customer') else ""))
+
+with excel_tab:
     st.subheader("Upload Excel / CSV")
     uploaded=st.file_uploader("Supported: XLSX, XLS, CSV",type=["xlsx","xls","csv"],accept_multiple_files=True,key="excel_upload")
     if uploaded and st.button("Process Excel / CSV",type="primary"):
@@ -292,4 +412,5 @@ with tab2:
                 cust_df=grouped[grouped["Customer"].fillna("")==cust];title=cust if cust else "UNKNOWN CUSTOMER";st.markdown(f"#### {title}");block="\n".join(sap_line(row["FG Code"],row["SAP Qty (PKT)"]) for _,row in cust_df.iterrows());st.code(block,language="text");txt_parts.append(f"### {title}\n{block}")
             st.download_button("Download All Customer Orders","\n\n".join(txt_parts),file_name="SAP_Orders_All_Customers.txt",mime="text/plain")
         else:st.warning("No valid order rows found.")
+
 st.divider();st.caption("SAP format: FG CODE + 2 tabs + QTY in PKT + 5 tabs + HO-WH + 2 tabs + CHEESE")
