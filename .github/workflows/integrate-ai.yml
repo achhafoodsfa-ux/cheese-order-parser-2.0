@@ -1,0 +1,79 @@
+name: Integrate OpenAI AI Parser
+
+on:
+  push:
+    paths:
+      - 'ai_order_parser.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  integrate-ai:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch parser
+        shell: python
+        run: |
+          from pathlib import Path
+
+          app = Path('app.py')
+          text = app.read_text(encoding='utf-8')
+
+          if 'from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text' not in text:
+              marker = 'from streamlit_paste_button import paste_image_button\n'
+              if marker not in text:
+                  raise SystemExit('Import marker not found; refusing to patch app.py')
+              text = text.replace(marker, marker + 'from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text\n', 1)
+
+          old = '''    st.info("📋 Copy a WhatsApp screenshot, then click **Paste Image**. For files, use the large uploader below; drag & drop is supported there.")\n\n    paste_result = paste_image_button("📋 Paste Image from Clipboard", key="paste_image_clipboard", errors="ignore")'''
+          new = '''    st.info("📋 Copy a WhatsApp screenshot, then click **Paste Image**. For files, use the large uploader below; drag & drop is supported there.")\n    ai_enabled = st.checkbox("🧠 Use AI Smart Parsing (recommended)", value=True, help="AI understands messy WhatsApp wording and screenshots. Final FG codes still come from your local product mapping/rules.")\n\n    paste_result = paste_image_button("📋 Paste Image from Clipboard", key="paste_image_clipboard", errors="ignore")'''
+          if old not in text:
+              raise SystemExit('Smart input marker not found; refusing to patch app.py')
+          text = text.replace(old, new, 1)
+
+          old_img = '''                status.info("Step 1/4 — OCR reading pasted image…")\n                extracted = ocr_image(data)\n                progress.progress(0.35, text="OCR completed")\n                with st.expander("🔎 Extracted text / OCR", expanded=False):\n                    st.text(extracted[:12000] if extracted else "[No text detected]")\n                if extracted.strip():\n                    status.info("Step 3/4 — Parsing pasted image…")\n                    customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.65+v*0.25,0.90), text=t))\n                    show_order_result(customer, rows, f"pasted_image_{pidx}")'''
+          new_img = '''                status.info("Step 1/4 — Reading pasted image…")\n                if ai_enabled:\n                    ai_result = ai_parse_order_image(data)\n                    extracted = ai_to_parser_text(ai_result)\n                    st.caption("🧠 AI interpretation used; FG mapping remains local/authoritative.")\n                else:\n                    extracted = ocr_image(data)\n                progress.progress(0.35, text="Image reading completed")\n                with st.expander("🔎 AI/OCR interpretation", expanded=False):\n                    st.text(extracted[:12000] if extracted else "[No readable order detected]")\n                if extracted.strip():\n                    status.info("Step 3/4 — Mapping products and quantities…")\n                    customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.65+v*0.25,0.90), text=t))\n                    if ai_enabled and ai_result.get("customer_name"):\n                        customer = ai_result["customer_name"]\n                    show_order_result(customer, rows, f"pasted_image_{pidx}")'''
+          if old_img not in text:
+              raise SystemExit('Pasted-image block not found; refusing to patch app.py')
+          text = text.replace(old_img, new_img, 1)
+
+          old_text = '''        if message:\n            status.info("Step 1/4 — Reading WhatsApp text…")\n            customer,rows=parse_order(message,lambda v,t: progress.progress(v,text=t))\n            status.info("Step 2/4 — Mapping products and quantities…")\n            show_order_result(customer,rows,"chat_text")'''
+          new_text = '''        if message:\n            status.info("Step 1/4 — Reading WhatsApp text…")\n            if ai_enabled:\n                ai_result = ai_parse_order_text(message)\n                parser_text = ai_to_parser_text(ai_result)\n                st.caption("🧠 AI interpretation used; customer codes are ignored for product mapping.")\n                with st.expander("🔎 AI interpretation", expanded=False):\n                    st.json(ai_result)\n            else:\n                ai_result = {"customer_name": "", "items": []}\n                parser_text = message\n            customer,rows=parse_order(parser_text,lambda v,t: progress.progress(v,text=t))\n            if ai_enabled and ai_result.get("customer_name"):\n                customer = ai_result["customer_name"]\n            status.info("Step 2/4 — Mapping products and quantities…")\n            show_order_result(customer,rows,"chat_text")'''
+          if old_text not in text:
+              raise SystemExit('Text parsing block not found; refusing to patch app.py')
+          text = text.replace(old_text, new_text, 1)
+
+          app.write_text(text, encoding='utf-8')
+
+          req = Path('requirements.txt')
+          req_text = req.read_text(encoding='utf-8')
+          if '\nopenai>=' not in ('\n' + req_text):
+              req_text = req_text.rstrip() + '\nopenai>=1.0,<3\n'
+              req.write_text(req_text, encoding='utf-8')
+
+      - name: Validate patch
+        run: |
+          grep -q "from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text" app.py
+          grep -q "Use AI Smart Parsing" app.py
+          grep -q "openai>=" requirements.txt
+          python -m py_compile app.py ai_order_parser.py
+
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py requirements.txt
+          if git diff --cached --quiet; then
+            echo "No changes needed."
+            exit 0
+          fi
+          git commit -m "Integrate OpenAI smart order parsing"
+          git push
