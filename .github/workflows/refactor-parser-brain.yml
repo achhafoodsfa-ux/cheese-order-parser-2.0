@@ -1,0 +1,122 @@
+name: Refactor Parser Brain
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Refactor parser brain') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch parser core
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          app = Path('app.py')
+          text = app.read_text(encoding='utf-8')
+
+          # Replace parse_order with a robust state machine. A line beginning
+          # with a customer name switches customer context; quantity must be
+          # explicit and ratio/weight numbers inside product names are ignored.
+          start = text.index('def parse_order(')
+          end = text.index('def sap_line(', start)
+          new_parse = r'''def parse_order(text, progress=None):
+    lines=[x.strip() for x in str(text).splitlines() if x.strip()]
+    rows=[]
+    customer=""
+    product_signal=re.compile(r"(cheese|cheddar|mozz|mozzarella|shred|shredded|dice|block|slice|butter|ghee|nivora|latina|verona|danish|top cow|achha|allana|50/50|70/30|pizza|silver|imported|local|classic)",re.I)
+    if progress: progress(0.05,"Reading order text…")
+
+    for i,line in enumerate(lines):
+        # Customer/order headings are text-only lines that do not look like product lines.
+        has_leading_qty=re.match(r"^\\s*(\\d+(?:\\.\\d+)?)\\s*(?:ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|units?|kg)?\\b", line, re.I)
+        standalone_customer=(not has_leading_qty and not re.search(r"\\d", line) and not product_signal.search(line))
+        if standalone_customer:
+            customer=line.strip()
+            continue
+
+        code=find_product(line)
+        qty,unit=parse_quantity(line)
+        if not code or qty is None:
+            rows.append({"Source":line,"Customer":customer,"FG Code":"UNMAPPED","Product":"","Input Qty":qty,"Input Unit":unit,"SAP Qty (PKT)":"","Status":"CHECK MAPPING"})
+            continue
+
+        p=PRODUCTS[code]
+        sap_qty=round(qty/p["kg"]) if unit=="KG" else int(qty*p["pcs_ctn"]) if unit=="CTN" else int(qty)
+        rows.append({"Source":line,"Customer":customer,"FG Code":code,"Product":p["name"],"Input Qty":qty,"Input Unit":unit,"SAP Qty (PKT)":sap_qty,"Status":"OK"})
+        if progress: progress(min(0.70,0.10+0.55*(i+1)/max(1,len(lines))),f"Mapping line {i+1}/{len(lines)}…")
+
+    if progress: progress(0.75,"Running quantity and SAP validation…")
+    return customer,rows
+
+'''
+          text=text[:start]+new_parse+text[end:]
+
+          # Replace result renderer so multiple customer groups appear separately.
+          start=text.index('def show_order_result(')
+          end=text.index('def teach_rule(', start)
+          new_show=r'''def show_order_result(customer,rows,source_label):
+    # Render one order block per customer, preserving customer separation.
+    groups={}
+    for row in rows:
+        groups.setdefault(row.get("Customer","") or customer or "UNKNOWN CUSTOMER",[]).append(row)
+
+    first=True
+    for group_customer,group_rows in groups.items():
+        if not first:
+            st.markdown("---")
+        first=False
+        ok=[r for r in group_rows if r["Status"]=="OK"]
+        bad=[r for r in group_rows if r["Status"]!="OK"]
+        st.markdown(f"### {group_customer}")
+        merged={}
+        for r in ok:
+            merged[r["FG Code"]]=merged.get(r["FG Code"],0)+int(r["SAP Qty (PKT)"])
+        sap="\\n".join(sap_line(c,q) for c,q in merged.items())
+        if merged:
+            st.subheader("SAP Paste Format")
+            st.code(sap,language="text")
+            st.button("📋 Copy SAP Order",key=f"copy_{abs(hash((source_label,group_customer))) }",on_click=lambda s=sap: st.session_state.__setitem__(f"copied_{abs(hash((source_label,group_customer)))}",s))
+            st.download_button("Download SAP Order",sap,file_name=f"{group_customer or 'order'}_SAP.txt",mime="text/plain",key=f"dl_{abs(hash((source_label,group_customer))) }" )
+        else:
+            st.warning("No mapped order lines found.")
+        if bad:
+            st.error("These lines need manual checking:")
+            st.dataframe(pd.DataFrame(bad),use_container_width=True)
+        check_df=pd.DataFrame(ok)
+        if not check_df.empty:
+            st.subheader("Triple-check")
+            st.dataframe(check_df[["Source","FG Code","Product","Input Qty","Input Unit","SAP Qty (PKT)"]],use_container_width=True)
+
+'''
+          text=text[:start]+new_show+text[end:]
+
+          app.write_text(text,encoding='utf-8')
+
+      - name: Validate
+        run: |
+          python -m py_compile app.py smart_brain.py ai_order_parser.py
+          grep -q 'def parse_order' app.py
+          grep -q 'def show_order_result' app.py
+          grep -q 'smart_brain' ai_order_parser.py
+
+      - name: Commit and remove workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py ai_order_parser.py smart_brain.py
+          git commit -m "Refactor parser brain"
+          git rm .github/workflows/refactor-parser-brain.yml
+          git commit -m "Remove temporary brain refactor workflow"
+          git push
