@@ -12,6 +12,7 @@ import fitz  # PyMuPDF
 from pypdf import PdfReader
 from docx import Document
 from streamlit_paste_button import paste_image_button
+from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text
 
 st.set_page_config(page_title="Cheese SAP Order Parser", page_icon="🧀", layout="wide")
 
@@ -326,6 +327,7 @@ with order_tab:
     st.subheader("Smart Order Input")
     st.info("Type/paste an order and press **Enter** to start. Or drag & drop one or more files into the same input.")
     st.info("📋 Copy a WhatsApp screenshot, then click **Paste Image**. For files, use the large uploader below; drag & drop is supported there.")
+    ai_enabled = st.checkbox("🧠 Use AI Smart Parsing (recommended)", value=True, help="AI understands messy WhatsApp wording and screenshots. Final FG codes still come from your local product mapping/rules.")
 
     paste_result = paste_image_button("📋 Paste Image from Clipboard", key="paste_image_clipboard", errors="ignore")
     fallback_files = st.file_uploader(
@@ -357,14 +359,21 @@ with order_tab:
             st.markdown(f"### 📋 Pasted WhatsApp image {pidx}")
             try:
                 st.image(data, caption="Pasted from clipboard", use_container_width=True)
-                status.info("Step 1/4 — OCR reading pasted image…")
-                extracted = ocr_image(data)
-                progress.progress(0.35, text="OCR completed")
-                with st.expander("🔎 Extracted text / OCR", expanded=False):
-                    st.text(extracted[:12000] if extracted else "[No text detected]")
+                status.info("Step 1/4 — Reading pasted image…")
+                if ai_enabled:
+                    ai_result = ai_parse_order_image(data)
+                    extracted = ai_to_parser_text(ai_result)
+                    st.caption("🧠 AI interpretation used; FG mapping remains local/authoritative.")
+                else:
+                    extracted = ocr_image(data)
+                progress.progress(0.35, text="Image reading completed")
+                with st.expander("🔎 AI/OCR interpretation", expanded=False):
+                    st.text(extracted[:12000] if extracted else "[No readable order detected]")
                 if extracted.strip():
-                    status.info("Step 3/4 — Parsing pasted image…")
+                    status.info("Step 3/4 — Mapping products and quantities…")
                     customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.65+v*0.25,0.90), text=t))
+                    if ai_enabled and ai_result.get("customer_name"):
+                        customer = ai_result["customer_name"]
                     show_order_result(customer, rows, f"pasted_image_{pidx}")
                 else:
                     st.error("Pasted image: no readable text was detected.")
@@ -373,7 +382,18 @@ with order_tab:
 
         if message:
             status.info("Step 1/4 — Reading WhatsApp text…")
-            customer,rows=parse_order(message,lambda v,t: progress.progress(v,text=t))
+            if ai_enabled:
+                ai_result = ai_parse_order_text(message)
+                parser_text = ai_to_parser_text(ai_result)
+                st.caption("🧠 AI interpretation used; customer codes are ignored for product mapping.")
+                with st.expander("🔎 AI interpretation", expanded=False):
+                    st.json(ai_result)
+            else:
+                ai_result = {"customer_name": "", "items": []}
+                parser_text = message
+            customer,rows=parse_order(parser_text,lambda v,t: progress.progress(v,text=t))
+            if ai_enabled and ai_result.get("customer_name"):
+                customer = ai_result["customer_name"]
             status.info("Step 2/4 — Mapping products and quantities…")
             show_order_result(customer,rows,"chat_text")
         for idx,f in enumerate(files,1):
