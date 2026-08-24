@@ -164,7 +164,7 @@ def find_product(text):
 def parse_quantity(line):
     t=norm(line)
     m=re.search(r"(\d+(?:\.\d+)?)\s*kg\s+.*burger\s*(?:/|or)?\s*(?:orange)?\s*slice",t)
-    if m:return int(float(m.group(1)),),"PKT"
+    if m:return int(float(m.group(1))),"PKT"
     m=re.search(r"(\d+(?:\.\d+)?)\s*(ctn|carton|cartons|pkt|packet|packets|pcs|pc|units?|kg)?\b",t)
     if not m:return None,None
     qty=float(m.group(1)); unit=(m.group(2) or "").lower(); qty=int(qty) if qty.is_integer() else qty
@@ -280,18 +280,15 @@ def teach_rule(rule_text, category="general", customer=""):
     text=rule_text.strip()
     if not text:return False,"Write a teaching rule first."
     rules=load_rules()
-    low=norm(text)
-    # Natural-language product alias teaching: "X means FG-02-0102" / "X = FG-02-0102"
     m=re.search(r"(.+?)\s*(?:means|=|is)\s*(FG-\d{2}-\d{4})\b",text,re.I)
     if m and m.group(2).upper() in PRODUCTS:
-        alias=m.group(1).strip(" :-")
-        code=m.group(2).upper()
+        alias=m.group(1).strip(" :-");code=m.group(2).upper()
         rules.setdefault("product_aliases",[])
         rules["product_aliases"]=[r for r in rules["product_aliases"] if norm(r.get("alias"))!=norm(alias)]
         rules["product_aliases"].append({"alias":alias,"code":code,"note":text})
         save_rules(rules);return True,f"Saved product alias: {alias} → {code}"
     entry={"rule":text,"customer":customer.strip(),"category":category}
-    key="customer_rules" if customer.strip() or category=="customer" else "general_rules"
+    key="customer_rules" if customer.strip() or category=="customer" else ("quantity_rules" if category=="quantity / conversion" else "general_rules")
     rules.setdefault(key,[]).append(entry);save_rules(rules)
     return True,"Teaching rule saved and will be applied as persistent guidance."
 
@@ -301,8 +298,8 @@ st.caption("Smart input + persistent teaching. Press Enter to start processing. 
 with st.sidebar:
     st.header("🧠 Parser Memory")
     st.metric("Saved product aliases",len(RULES.get("product_aliases",[])))
-    st.metric("Saved rules",len(RULES.get("general_rules",[]))+len(RULES.get("customer_rules",[])))
-    st.caption("Rules are stored in rules.json. They survive normal app reruns while the app filesystem persists.")
+    st.metric("Saved rules",len(RULES.get("general_rules",[]))+len(RULES.get("customer_rules",[]))+len(RULES.get("quantity_rules",[])))
+    st.caption("Saved rules are stored in rules.json. They remain available across normal Streamlit reruns.")
     if RULES.get("product_aliases"):
         st.subheader("Learned aliases")
         for r in RULES["product_aliases"][-12:]:st.write(f"• **{r['alias']}** → `{r['code']}`")
@@ -334,11 +331,9 @@ with order_tab:
     files=[];message=""
     if submission:
         message=getattr(submission,"text","") or ""
-        submitted_files=getattr(submission,"files",[]) or []
-        files.extend(submitted_files)
+        files.extend(getattr(submission,"files",[]) or [])
     if run_fallback:
-        message=fallback_text.strip()
-        files.extend(fallback_files or [])
+        message=fallback_text.strip();files.extend(fallback_files or [])
 
     if submission or run_fallback:
         progress=st.progress(0,text="Starting parser…")
@@ -349,28 +344,22 @@ with order_tab:
             status.info("Step 2/4 — Mapping products and quantities…")
             show_order_result(customer,rows,"chat_text")
         for idx,f in enumerate(files,1):
-            st.markdown("---")
-            st.markdown(f"### 📎 {f.name}")
+            st.markdown("---");st.markdown(f"### 📎 {f.name}")
             try:
-                status.info(f"Step 1/4 — Reading {f.name}…")
-                kind,content=read_uploaded_file(f)
+                status.info(f"Step 1/4 — Reading {f.name}…");kind,content=read_uploaded_file(f)
                 progress.progress(min(0.35+idx/max(1,len(files))*0.25,0.60),text=f"Extracted {f.name}")
                 if kind in ("excel","csv"):
-                    status.info("Step 2/4 — Processing spreadsheet rows…")
-                    result=process_tabular(content)
+                    status.info("Step 2/4 — Processing spreadsheet rows…");result=process_tabular(content)
                     if result.empty:st.warning(f"{f.name}: no valid mapped rows found.")
                     else:st.success(f"{f.name}: {len(result)} mapped rows extracted.");st.dataframe(result,use_container_width=True)
                 else:
                     extracted=str(content)
                     with st.expander("🔎 Extracted text / OCR",expanded=False):st.text(extracted[:12000] if extracted else "[No text detected]")
                     if extracted.strip():
-                        status.info("Step 3/4 — Parsing extracted order…")
-                        customer,rows=parse_order(extracted,lambda v,t: progress.progress(min(0.65+v*0.25,0.90),text=t))
-                        show_order_result(customer,rows,f.name)
+                        status.info("Step 3/4 — Parsing extracted order…");customer,rows=parse_order(extracted,lambda v,t: progress.progress(min(0.65+v*0.25,0.90),text=t));show_order_result(customer,rows,f.name)
                     else:st.error(f"{f.name}: no readable text was detected.")
             except Exception as e:st.error(f"{f.name}: {e}")
-        progress.progress(1.0,text="Done — order processed and validated.")
-        status.success("Step 4/4 — Complete. Review the Triple-check table before SAP paste.")
+        progress.progress(1.0,text="Done — order processed and validated.");status.success("Step 4/4 — Complete. Review the Triple-check table before SAP paste.")
 
 with teach_tab:
     st.subheader("🎓 Teach the Parser")
@@ -384,10 +373,8 @@ with teach_tab:
         ok,msg=teach_rule(teach_text,category,teach_customer)
         if ok:st.success(msg);RULES=load_rules()
         else:st.warning(msg)
-    st.divider()
-    st.subheader("Saved memory")
-    rules=load_rules()
-    aliases=rules.get("product_aliases",[])
+    st.divider();st.subheader("Saved memory")
+    rules=load_rules();aliases=rules.get("product_aliases",[])
     if aliases:st.dataframe(pd.DataFrame(aliases),use_container_width=True)
     for label,key in [("General rules","general_rules"),("Customer rules","customer_rules"),("Quantity / conversion rules","quantity_rules")]:
         items=rules.get(key,[])
