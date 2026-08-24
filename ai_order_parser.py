@@ -3,7 +3,7 @@ import json
 import os
 from typing import Any, Dict
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError, APIError, APITimeoutError, APIConnectionError
 
 MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
@@ -71,38 +71,98 @@ def _parse_response(response) -> Dict[str, Any]:
         raise RuntimeError("OpenAI returned invalid structured output.") from exc
 
 
+def _fallback_text_result(text: str, reason: str) -> Dict[str, Any]:
+    return {
+        "customer_name": "",
+        "items": [],
+        "_fallback": True,
+        "_fallback_text": text,
+        "_fallback_reason": reason,
+    }
+
+
+def _fallback_image_result(image_bytes: bytes, reason: str) -> Dict[str, Any]:
+    """Use the existing local OCR pipeline when AI is unavailable."""
+    try:
+        import io
+        from PIL import Image, ImageOps, ImageFilter
+        import pytesseract
+
+        image = Image.open(io.BytesIO(image_bytes))
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        w, h = image.size
+        scale = 2 if max(w, h) < 2500 else 1
+        if scale > 1:
+            image = image.resize((w * scale, h * scale))
+        gray = ImageOps.grayscale(image)
+        gray = ImageOps.autocontrast(gray)
+        gray = gray.filter(ImageFilter.SHARPEN)
+        text = pytesseract.image_to_string(gray, config="--psm 6")
+        if not text.strip():
+            text = pytesseract.image_to_string(gray, config="--psm 11")
+        text = text.replace("\x00", " ")
+        lines = []
+        for raw in text.splitlines():
+            line = " ".join(raw.split()).strip()
+            if line:
+                lines.append(line)
+        cleaned = "\n".join(lines)
+        return _fallback_text_result(cleaned, reason)
+    except Exception as exc:
+        return _fallback_text_result("", f"AI unavailable and local OCR failed: {exc}")
+
+
+def _call_ai(callable_request, fallback_factory):
+    try:
+        return callable_request()
+    except RateLimitError:
+        return fallback_factory("OpenAI rate/quota limit reached; used local parser fallback.")
+    except (APIError, APITimeoutError, APIConnectionError) as exc:
+        return fallback_factory(f"OpenAI API unavailable; used local parser fallback ({type(exc).__name__}).")
+    except Exception:
+        # Do not hide programmer errors; only the expected API failures should degrade gracefully.
+        raise
+
+
 def ai_parse_order_text(text: str) -> Dict[str, Any]:
-    response = _client().responses.create(
-        model=MODEL,
-        store=False,
-        instructions=INSTRUCTIONS,
-        input=text,
-        text={"format": {"type": "json_schema", "name": "cheese_order", "schema": SCHEMA, "strict": True}},
+    return _call_ai(
+        lambda: _parse_response(_client().responses.create(
+            model=MODEL,
+            store=False,
+            instructions=INSTRUCTIONS,
+            input=text,
+            text={"format": {"type": "json_schema", "name": "cheese_order", "schema": SCHEMA, "strict": True}},
+        )),
+        lambda reason: _fallback_text_result(text, reason),
     )
-    return _parse_response(response)
 
 
 def ai_parse_order_image(image_bytes: bytes) -> Dict[str, Any]:
     data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")
-    response = _client().responses.create(
-        model=MODEL,
-        store=False,
-        instructions=INSTRUCTIONS,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": "Read this order screenshot and extract the structured order."},
-                    {"type": "input_image", "image_url": data_url, "detail": "high"},
-                ],
-            }
-        ],
-        text={"format": {"type": "json_schema", "name": "cheese_order", "schema": SCHEMA, "strict": True}},
+    return _call_ai(
+        lambda: _parse_response(_client().responses.create(
+            model=MODEL,
+            store=False,
+            instructions=INSTRUCTIONS,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Read this order screenshot and extract the structured order."},
+                        {"type": "input_image", "image_url": data_url, "detail": "high"},
+                    ],
+                }
+            ],
+            text={"format": {"type": "json_schema", "name": "cheese_order", "schema": SCHEMA, "strict": True}},
+        )),
+        lambda reason: _fallback_image_result(image_bytes, reason),
     )
-    return _parse_response(response)
 
 
 def ai_to_parser_text(result: Dict[str, Any]) -> str:
+    if result.get("_fallback"):
+        return str(result.get("_fallback_text", ""))
     lines = ["AI_CUSTOMER"]
     for item in result.get("items", []):
         qty = item.get("quantity")
