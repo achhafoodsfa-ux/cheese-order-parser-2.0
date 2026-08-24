@@ -1,0 +1,79 @@
+name: Fix Parser Input
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-parser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch parser input safely
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          app = Path('app.py')
+          text = app.read_text(encoding='utf-8')
+
+          # Add stable clipboard component import once.
+          if 'from streamlit_paste_button import paste_image_button' not in text:
+              text = text.replace(
+                  'from docx import Document\n',
+                  'from docx import Document\nfrom streamlit_paste_button import paste_image_button\n'
+              )
+
+          old = '''    try:\n        submission=st.chat_input("Paste WhatsApp order here… press Enter to parse",accept_file=True,file_type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),max_uploads=10)\n    except TypeError:\n        submission=st.chat_input("Paste WhatsApp order here… press Enter to parse")\n        st.caption("File upload compatibility mode: use the uploader below if your Streamlit version does not support files in chat input.")\n    fallback_files=st.file_uploader("Or drag & drop files here",type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),accept_multiple_files=True,key="smart_files")\n    fallback_text=st.text_area("Or paste text here",height=130,placeholder="Customer Name\\n3 CTN 70/30 local\\n1 CTN 70/30 new",key="fallback_text")\n    run_fallback=st.button("🚀 Process pasted text / files",type="primary")\n\n    files=[];message=""\n    if submission:\n        message=getattr(submission,"text","") or ""\n        files.extend(getattr(submission,"files",[]) or [])\n    if run_fallback:\n        message=fallback_text.strip();files.extend(fallback_files or [])\n\n    if submission or run_fallback:\n'''
+
+          new = '''    st.info("📋 Copy a WhatsApp screenshot, then click **Paste Image**. For files, use the large uploader below; drag & drop is supported there.")\n\n    paste_result = paste_image_button("📋 Paste Image from Clipboard", key="paste_image_clipboard", errors="ignore")\n    fallback_files = st.file_uploader(\n        "📎 DROP FILES / IMAGES HERE — PNG, JPG, PDF, Excel, CSV, Word, TXT",\n        type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),\n        accept_multiple_files=True,\n        key="smart_files",\n        help="Drag files directly into this box or click Browse files.",\n    )\n    fallback_text=st.text_area("Or paste WhatsApp text here",height=130,placeholder="Customer Name\\n3 CTN 70/30 local\\n1 CTN 70/30 new",key="fallback_text")\n    run_fallback=st.button("🚀 Process pasted text / files",type="primary")\n\n    pasted_images = []\n    if paste_result is not None and getattr(paste_result, "image_data", None) is not None:\n        import io\n        buf = io.BytesIO()\n        paste_result.image_data.save(buf, format="PNG")\n        pasted_images.append(buf.getvalue())\n\n    files=[];message=""\n    if run_fallback:\n        message=fallback_text.strip();files.extend(fallback_files or [])\n\n    if run_fallback or pasted_images:\n'''
+
+          if old in text:
+              text = text.replace(old, new, 1)
+          else:
+              raise SystemExit('Expected Smart Order Input block was not found; refusing to modify app.py.')
+
+          old2 = '''        if message:\n            status.info("Step 1/4 — Reading WhatsApp text…")\n'''
+          new2 = '''        for pidx, data in enumerate(pasted_images, 1):\n            st.markdown("---")\n            st.markdown(f"### 📋 Pasted WhatsApp image {pidx}")\n            try:\n                st.image(data, caption="Pasted from clipboard", use_container_width=True)\n                status.info("Step 1/4 — OCR reading pasted image…")\n                extracted = ocr_image(data)\n                progress.progress(0.35, text="OCR completed")\n                with st.expander("🔎 Extracted text / OCR", expanded=False):\n                    st.text(extracted[:12000] if extracted else "[No text detected]")\n                if extracted.strip():\n                    status.info("Step 3/4 — Parsing pasted image…")\n                    customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.65+v*0.25,0.90), text=t))\n                    show_order_result(customer, rows, f"pasted_image_{pidx}")\n                else:\n                    st.error("Pasted image: no readable text was detected.")\n            except Exception as e:\n                st.error(f"Pasted image {pidx}: {e}")\n\n        if message:\n            status.info("Step 1/4 — Reading WhatsApp text…")\n'''
+          if old2 not in text:
+              raise SystemExit('Expected processing block was not found; refusing to modify app.py.')
+          text = text.replace(old2, new2, 1)
+
+          # Explicitly document that customer identifiers are never product-matched.
+          marker = 'def find_product(text):\n'
+          guard = '''def find_product(text):\n    # Customer identifiers/codes are intentionally ignored. This function maps product text only.\n'''
+          if marker in text and 'Customer identifiers/codes are intentionally ignored' not in text:
+              text = text.replace(marker, guard, 1)
+
+          app.write_text(text, encoding='utf-8')
+          PY
+
+          grep -q "streamlit_paste_button" app.py
+          grep -q "Paste Image from Clipboard" app.py
+          grep -q "DROP FILES / IMAGES HERE" app.py
+
+          if ! grep -q "streamlit-paste-button" requirements.txt; then
+            printf '\nstreamlit-paste-button>=0.1.0,<1\n' >> requirements.txt
+          fi
+
+      - name: Commit patched parser
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py requirements.txt
+          if git diff --cached --quiet; then
+            echo "No changes needed."
+            exit 0
+          fi
+          git commit -m "Fix product-only mapping and clipboard/file input"
+          git push
