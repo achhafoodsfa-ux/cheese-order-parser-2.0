@@ -1,0 +1,338 @@
+name: Improve Unified Parser UI
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Finalize unified parser UI') && !contains(github.event.head_commit.message, 'Improve parser AI core') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rewrite AI order parser for multi-customer orders
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('ai_order_parser.py')
+          p.write_text(r'''import base64
+import json
+import os
+from typing import Any, Dict
+
+from openai import OpenAI, RateLimitError, APIError, APITimeoutError, APIConnectionError
+
+MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+
+ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "raw_text": {"type": "string"},
+        "product": {"type": "string"},
+        "quantity": {"type": "number"},
+        "unit": {"type": "string", "enum": ["CTN", "PKT", "KG", "PCS"]},
+    },
+    "required": ["raw_text", "product", "quantity", "unit"],
+    "additionalProperties": False,
+}
+
+ORDER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "orders": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "customer_name": {"type": "string"},
+                    "items": {"type": "array", "items": ITEM_SCHEMA},
+                },
+                "required": ["customer_name", "items"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["orders"],
+    "additionalProperties": False,
+}
+
+INSTRUCTIONS = """
+You are the order-understanding layer for a cheese order parser.
+A single WhatsApp screenshot/text may contain ONE OR MANY separate customer orders. It may contain 1, 10, 20 or more customers.
+FIRST identify customer/order boundaries. Then assign each product line to the correct customer. NEVER merge different customers into one order.
+Extract each customer as a separate object in `orders`, preserving the original order sequence from the source.
+Customer names are headings/identifiers only. Customer codes/IDs such as CFS..., BP..., phone numbers, invoice numbers and dates are NEVER product identifiers and must NEVER be used to choose an FG code.
+Ignore delivery instructions, greetings, addresses, prices and unrelated chatter.
+Never invent or return SAP FG codes. Only normalize the product wording.
+Rules:
+- Classic shredd / classic shredded ALWAYS means Classic Mozzarella Shredded.
+- 50/50 shredd / 50/50 shredded means Imported 50/50 Mozzarella/Cheddar Shredded 2 KG.
+- For Top Cow only, White Shredded = White Dice and Yellow Shredded = Yellow Dice.
+- For all other products, preserve Dice vs Shredded vs Block exactly as written.
+- Achha White Dice means Achha White Dice.
+- Box, boxes, carton, cartons and ctn ALL mean the same unit: CTN.
+- IMPORTANT: numbers inside product names/ratios/weights are NOT order quantities. Examples: 70/30, 50/50, 2kg, 1kg, 800gm are product specifications. The actual quantity is the number explicitly paired with the order unit (e.g. 10 ctn, 3 box, 5 pkt, 2 kg when kg is clearly ordered quantity).
+- Preserve the explicit order quantity and unit exactly.
+- If a customer has multiple product lines, keep them under that same customer.
+- If a new customer heading appears, start a new order immediately.
+- If customer code appears beside/under customer name, ignore it for product mapping.
+""".strip()
+
+
+def _api_key() -> str | None:
+    try:
+        import streamlit as st
+        return st.secrets.get("OPENAI_API_KEY")
+    except Exception:
+        return os.getenv("OPENAI_API_KEY")
+
+
+def _client() -> OpenAI:
+    key = _api_key()
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY is not configured in Streamlit Secrets.")
+    return OpenAI(api_key=key)
+
+
+def _parse_response(response) -> Dict[str, Any]:
+    raw = getattr(response, "output_text", "") or ""
+    if not raw:
+        raise RuntimeError("OpenAI returned an empty response.")
+    return json.loads(raw)
+
+
+def _fallback_text_result(text: str, reason: str) -> Dict[str, Any]:
+    return {"orders": [{"customer_name": "", "items": []}], "_fallback": True, "_fallback_text": text, "_fallback_reason": reason}
+
+
+def _fallback_image_result(image_bytes: bytes, reason: str) -> Dict[str, Any]:
+    try:
+        import io
+        from PIL import Image, ImageOps, ImageFilter
+        import pytesseract
+        image = Image.open(io.BytesIO(image_bytes))
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        w, h = image.size
+        if max(w, h) < 2500:
+            image = image.resize((w * 2, h * 2))
+        gray = ImageOps.autocontrast(ImageOps.grayscale(image)).filter(ImageFilter.SHARPEN)
+        text = pytesseract.image_to_string(gray, config="--psm 6")
+        if not text.strip():
+            text = pytesseract.image_to_string(gray, config="--psm 11")
+        text = "\n".join(" ".join(line.split()).strip() for line in text.replace("\x00", " ").splitlines() if line.strip())
+        return _fallback_text_result(text, reason)
+    except Exception as exc:
+        return _fallback_text_result("", f"AI unavailable and local OCR failed: {exc}")
+
+
+def _call_ai(fn, fallback):
+    try:
+        return fn()
+    except RateLimitError:
+        return fallback("OpenAI rate/quota limit reached; using local parser fallback.")
+    except (APIError, APITimeoutError, APIConnectionError) as exc:
+        return fallback(f"OpenAI API unavailable; using local parser fallback ({type(exc).__name__}).")
+
+
+def ai_parse_order_text(text: str) -> Dict[str, Any]:
+    return _call_ai(
+        lambda: _parse_response(_client().responses.create(
+            model=MODEL,
+            store=False,
+            instructions=INSTRUCTIONS,
+            input=text,
+            text={"format": {"type": "json_schema", "name": "cheese_multi_order", "schema": ORDER_SCHEMA, "strict": True}},
+        )),
+        lambda reason: _fallback_text_result(text, reason),
+    )
+
+
+def ai_parse_order_image(image_bytes: bytes) -> Dict[str, Any]:
+    data_url = "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")
+    return _call_ai(
+        lambda: _parse_response(_client().responses.create(
+            model=MODEL,
+            store=False,
+            instructions=INSTRUCTIONS,
+            input=[{"role": "user", "content": [
+                {"type": "input_text", "text": "Read this WhatsApp screenshot. Identify EVERY separate customer order and keep each customer's products together."},
+                {"type": "input_image", "image_url": data_url, "detail": "high"},
+            ]}],
+            text={"format": {"type": "json_schema", "name": "cheese_multi_order", "schema": ORDER_SCHEMA, "strict": True}},
+        )),
+        lambda reason: _fallback_image_result(image_bytes, reason),
+    )
+
+
+def ai_to_parser_orders(result: Dict[str, Any]):
+    if result.get("_fallback"):
+        return [{"customer_name": "", "text": result.get("_fallback_text", "")}]
+    orders = []
+    for order in result.get("orders", []):
+        lines = [str(order.get("customer_name", "")).strip() or "UNKNOWN CUSTOMER"]
+        for item in order.get("items", []):
+            qty = item.get("quantity")
+            unit = item.get("unit", "PKT")
+            product = item.get("product", "")
+            if product and qty not in (None, ""):
+                lines.append(f"{qty} {unit} {product}")
+        orders.append({"customer_name": order.get("customer_name", ""), "text": "\n".join(lines)})
+    return orders
+
+
+def ai_to_parser_text(result: Dict[str, Any]) -> str:
+    orders = ai_to_parser_orders(result)
+    return orders[0]["text"] if orders else ""
+''', encoding='utf-8')
+
+      - name: Patch main UI into two-column layout
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          app = Path('app.py')
+          text = app.read_text(encoding='utf-8')
+          text = text.replace('from streamlit_paste_button import paste_image_button\n', 'from streamlit_chat_prompt import prompt as smart_prompt\n')
+          text = text.replace('from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text', 'from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text, ai_to_parser_orders')
+
+          start = text.index('with order_tab:')
+          end = text.index('\nwith teach_tab:', start)
+
+          new_order_tab = r'''with order_tab:
+    st.subheader("Smart Order Input")
+    st.caption("AI reads the order structure; your master/rules decide the final FG code. Multiple customers are kept separate.")
+
+    left_col, right_col = st.columns([0.38, 0.62], gap="large")
+
+    with left_col:
+        st.markdown("### 📥 Input")
+        st.markdown("**Paste a WhatsApp screenshot directly with Ctrl+V**, or drag/drop images into the prompt. You can also drag multiple files/sheets below.")
+
+        smart = smart_prompt(
+            name="cheese_order_input",
+            key="cheese_order_input",
+            placeholder="Paste/type WhatsApp order here… (Ctrl+V screenshot works here)",
+            main_bottom=False,
+            max_image_size=8 * 1024 * 1024,
+        )
+
+        files = st.file_uploader(
+            "📎 DROP MULTIPLE FILES / SHEETS HERE",
+            type=sorted(IMAGE_EXTS | TABULAR_EXTS | TEXT_EXTS | PDF_EXTS | DOC_EXTS),
+            accept_multiple_files=True,
+            key="multi_files",
+            help="Drag/drop multiple screenshots, images, PDFs, Excel or CSV files here.",
+        )
+
+        process_files = bool(files)
+        prompt_received = smart is not None
+
+    with right_col:
+        st.markdown("### 📤 Customer-wise SAP Output")
+        if not smart and not files:
+            st.info("Your processed customer orders will appear here, one below another.")
+
+        submissions = []
+        if smart:
+            if getattr(smart, "text", None):
+                submissions.append(("pasted_text", "text", smart.text))
+            for image in (getattr(smart, "images", None) or []):
+                import base64
+                submissions.append(("clipboard_image", "image", base64.b64decode(image.data)))
+        for f in files or []:
+            submissions.append((f.name, "file", f))
+
+        for idx, (source_name, kind, payload) in enumerate(submissions):
+            try:
+                if kind == "text":
+                    ai_result = ai_parse_order_text(payload)
+                    orders = ai_to_parser_orders(ai_result)
+                elif kind == "image":
+                    ai_result = ai_parse_order_image(payload)
+                    orders = ai_to_parser_orders(ai_result)
+                else:
+                    ext = Path(payload.name).suffix.lower()
+                    if ext in IMAGE_EXTS:
+                        ai_result = ai_parse_order_image(payload.getvalue())
+                        orders = ai_to_parser_orders(ai_result)
+                    else:
+                        file_kind, extracted = read_uploaded_file(payload)
+                        if file_kind in ("excel", "csv"):
+                            result = process_tabular(extracted)
+                            if not result.empty:
+                                st.markdown(f"#### 📊 {payload.name}")
+                                st.dataframe(result, use_container_width=True)
+                            continue
+                        ai_result = ai_parse_order_text(str(extracted))
+                        orders = ai_to_parser_orders(ai_result)
+
+                for order_num, order in enumerate(orders, 1):
+                    parser_text = order.get("text", "").strip()
+                    customer_name = order.get("customer_name", "").strip() or "UNKNOWN CUSTOMER"
+                    if not parser_text:
+                        continue
+                    mapped_customer, rows = parse_order(parser_text, lambda v, t: None)
+                    customer = customer_name or mapped_customer
+                    ok_rows = [r for r in rows if r["Status"] == "OK"]
+                    bad_rows = [r for r in rows if r["Status"] != "OK"]
+                    st.markdown(f"#### {customer}")
+                    merged = {}
+                    for r in ok_rows:
+                        merged[r["FG Code"]] = merged.get(r["FG Code"], 0) + int(r["SAP Qty (PKT)"])
+                    sap = "\n".join(sap_line(c, q) for c, q in merged.items())
+                    if sap:
+                        st.code(sap, language="text")
+                        import streamlit.components.v1 as components
+                        copy_html = f'''<script>function copySAP(id){{const t=document.getElementById(id).innerText;navigator.clipboard.writeText(t);document.getElementById(id+'msg').innerText='✅ Copied';}}</script><button onclick="copySAP('sap{idx}_{order_num}')" style="padding:6px 12px;border:1px solid #aaa;border-radius:6px;background:#fff;cursor:pointer">📋 Copy SAP Order</button><span id="sap{idx}_{order_num}msg" style="margin-left:8px"></span><pre id="sap{idx}_{order_num}" style="display:none">{sap.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</pre>'''
+                        components.html(copy_html, height=42)
+                    if bad_rows:
+                        with st.expander("⚠️ Lines needing manual check"):
+                            st.dataframe(bad_rows, use_container_width=True)
+                    with st.expander("🔎 Triple-check details"):
+                        st.dataframe(pd.DataFrame(ok_rows)[["Source","FG Code","Product","Input Qty","Input Unit","SAP Qty (PKT)"]] if ok_rows else pd.DataFrame(), use_container_width=True)
+                    st.divider()
+            except Exception as exc:
+                st.error(f"Could not process {source_name}: {exc}")
+'''
+          text = text[:start] + new_order_tab + text[end:]
+          app.write_text(text, encoding='utf-8')
+
+      - name: Patch requirements
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('requirements.txt')
+          lines = [x.strip() for x in p.read_text(encoding='utf-8').splitlines() if x.strip()]
+          lines = [x for x in lines if not x.startswith('streamlit-paste-button') and not x.startswith('streamlit-chat-prompt')]
+          lines.append('streamlit-chat-prompt==0.4.1')
+          p.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+      - name: Remove temporary AI-only page
+        run: rm -f 'pages/🧠 AI Smart Parser.py'
+
+      - name: Validate
+        shell: bash
+        run: |
+          python -m py_compile app.py ai_order_parser.py
+          grep -q 'streamlit-chat-prompt==0.4.1' requirements.txt
+          grep -q 'smart_prompt' app.py
+          grep -q 'ai_to_parser_orders' app.py
+          test ! -e 'pages/🧠 AI Smart Parser.py'
+
+      - name: Commit final changes and remove workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py ai_order_parser.py requirements.txt pages
+          git commit -m "Finalize unified parser UI"
+          git rm .github/workflows/unify-ui-multiorder.yml
+          git commit -m "Remove temporary UI patch workflow"
+          git push
