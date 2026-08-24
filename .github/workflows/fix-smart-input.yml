@@ -1,0 +1,59 @@
+name: Fix Smart Input
+
+on:
+  push:
+    paths:
+      - 'app.py'
+      - 'requirements.txt'
+    paths-ignore:
+      - '.github/workflows/fix-smart-input.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch native smart input
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('app.py')
+          s = p.read_text(encoding='utf-8')
+
+          s = s.replace('from streamlit_paste_button import paste_image_button\n', '')
+
+          start = s.find('with order_tab:\n')
+          end = s.find('with teach_tab:', start)
+          if start < 0 or end < 0:
+              raise SystemExit('Could not locate Smart Order Input block')
+
+          block = '''with order_tab:\n    st.subheader("Smart Order Input")\n    st.caption("One box for text, WhatsApp screenshots, images, Excel, PDF, CSV, Word and multiple files.")\n\n    submission = st.chat_input(\n        "Type/paste WhatsApp order — Ctrl+V screenshot or drag & drop files",\n        accept_file="multiple",\n        file_type=sorted(IMAGE_EXTS | TABULAR_EXTS | TEXT_EXTS | PDF_EXTS | DOC_EXTS),\n        max_upload_size=200,\n        key="smart_order_input",\n    )\n\n    if submission is not None:\n        message = (getattr(submission, "text", "") or "").strip()\n        files = list(getattr(submission, "files", []) or [])\n        progress = st.progress(0, text="Starting parser…")\n        status = st.empty()\n\n        if message:\n            try:\n                status.info("🧠 AI is understanding the order…")\n                ai_result = ai_parse_order_text(message)\n                parser_text = ai_to_parser_text(ai_result)\n                with st.expander("🔎 AI interpretation", expanded=False):\n                    st.json(ai_result)\n                progress.progress(0.45, text="AI understanding completed")\n                customer, rows = parse_order(parser_text, lambda v,t: progress.progress(min(0.45 + v*0.45, 0.90), text=t))\n                if ai_result.get("customer_name"):\n                    customer = ai_result["customer_name"]\n                show_order_result(customer, rows, "chat_text")\n            except Exception as e:\n                st.error(f"Text parsing error: {e}")\n\n        for idx, f in enumerate(files, 1):\n            st.markdown("---")\n            st.markdown(f"### 📎 {f.name}")\n            try:\n                status.info(f"Reading {f.name}…")\n                kind, content = read_uploaded_file(f)\n                progress.progress(min(0.15 + idx/max(1, len(files))*0.30, 0.50), text=f"Reading {f.name}")\n\n                if kind in ("excel", "csv"):\n                    result = process_tabular(content)\n                    if result.empty:\n                        st.warning(f"{f.name}: no valid mapped rows found.")\n                    else:\n                        st.success(f"{f.name}: {len(result)} mapped rows extracted.")\n                        st.dataframe(result, use_container_width=True)\n                        for customer_name, group in result.groupby("Customer", dropna=False):\n                            cust = str(customer_name).strip()\n                            st.markdown(f"### {cust or 'Order'}")\n                            merged = {}\n                            for _, r in group.iterrows():\n                                merged[r["FG Code"]] = merged.get(r["FG Code"], 0) + int(r["SAP Qty (PKT)"])\n                            sap = "\\n".join(sap_line(c,q) for c,q in merged.items())\n                            st.code(sap, language="text")\n                            st.download_button("📋 Copy/Download SAP Order", sap, file_name=f"{cust or 'order'}_SAP.txt", mime="text/plain", key=f"sap_{idx}_{abs(hash(cust))}")\n                else:\n                    if kind == "image":\n                        ai_result = ai_parse_order_image(f.getvalue())\n                    else:\n                        ai_result = ai_parse_order_text(str(content))\n                    extracted = ai_to_parser_text(ai_result)\n                    with st.expander("🔎 AI interpretation", expanded=False):\n                        st.json(ai_result)\n                    if extracted.strip():\n                        customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.50 + v*0.40, 0.92), text=t))\n                        customer = ai_result.get("customer_name") or customer\n                        show_order_result(customer, rows, f.name)\n                    else:\n                        st.warning(f"{f.name}: no readable order was detected.")\n            except Exception as e:\n                st.error(f"{f.name}: {e}")\n\n        progress.progress(1.0, text="Done")\n\n'''
+
+          s = s[:start] + block + s[end:]
+          p.write_text(s, encoding='utf-8')
+
+          rp = Path('requirements.txt')
+          rs = rp.read_text(encoding='utf-8')
+          rs = re.sub(r'^streamlit>=.*$', 'streamlit>=1.61,<2', rs, flags=re.M)
+          rs = rs.replace('streamlit-chat-prompt==0.4.1\n', '')
+          rp.write_text(rs, encoding='utf-8')
+          PY
+
+          python -m py_compile app.py
+
+      - name: Commit repaired parser
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.py requirements.txt
+          git diff --cached --quiet && exit 0
+          git commit -m 'Fix smart input for clipboard images and multiple files'
+          git push
