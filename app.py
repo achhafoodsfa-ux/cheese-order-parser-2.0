@@ -11,6 +11,7 @@ import pytesseract
 import fitz  # PyMuPDF
 from pypdf import PdfReader
 from docx import Document
+from streamlit_paste_button import paste_image_button
 
 st.set_page_config(page_title="Cheese SAP Order Parser", page_icon="🧀", layout="wide")
 
@@ -122,6 +123,7 @@ def apply_saved_aliases(text):
     return None
 
 def find_product(text):
+    # Customer identifiers/codes are intentionally ignored. This function maps product text only.
     t=norm(text)
     saved=apply_saved_aliases(t)
     if saved:return saved
@@ -323,25 +325,52 @@ order_tab,teach_tab,excel_tab=st.tabs(["🤖 Smart Order Input","🎓 Teach / Sa
 with order_tab:
     st.subheader("Smart Order Input")
     st.info("Type/paste an order and press **Enter** to start. Or drag & drop one or more files into the same input.")
-    try:
-        submission=st.chat_input("Paste WhatsApp order here… press Enter to parse",accept_file=True,file_type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),max_uploads=10)
-    except TypeError:
-        submission=st.chat_input("Paste WhatsApp order here… press Enter to parse")
-        st.caption("File upload compatibility mode: use the uploader below if your Streamlit version does not support files in chat input.")
-    fallback_files=st.file_uploader("Or drag & drop files here",type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),accept_multiple_files=True,key="smart_files")
-    fallback_text=st.text_area("Or paste text here",height=130,placeholder="Customer Name\n3 CTN 70/30 local\n1 CTN 70/30 new",key="fallback_text")
+    st.info("📋 Copy a WhatsApp screenshot, then click **Paste Image**. For files, use the large uploader below; drag & drop is supported there.")
+
+    paste_result = paste_image_button("📋 Paste Image from Clipboard", key="paste_image_clipboard", errors="ignore")
+    fallback_files = st.file_uploader(
+        "📎 DROP FILES / IMAGES HERE — PNG, JPG, PDF, Excel, CSV, Word, TXT",
+        type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),
+        accept_multiple_files=True,
+        key="smart_files",
+        help="Drag files directly into this box or click Browse files.",
+    )
+    fallback_text=st.text_area("Or paste WhatsApp text here",height=130,placeholder="Customer Name\n3 CTN 70/30 local\n1 CTN 70/30 new",key="fallback_text")
     run_fallback=st.button("🚀 Process pasted text / files",type="primary")
 
+    pasted_images = []
+    if paste_result is not None and getattr(paste_result, "image_data", None) is not None:
+        import io
+        buf = io.BytesIO()
+        paste_result.image_data.save(buf, format="PNG")
+        pasted_images.append(buf.getvalue())
+
     files=[];message=""
-    if submission:
-        message=getattr(submission,"text","") or ""
-        files.extend(getattr(submission,"files",[]) or [])
     if run_fallback:
         message=fallback_text.strip();files.extend(fallback_files or [])
 
-    if submission or run_fallback:
+    if run_fallback or pasted_images:
         progress=st.progress(0,text="Starting parser…")
         status=st.empty()
+        for pidx, data in enumerate(pasted_images, 1):
+            st.markdown("---")
+            st.markdown(f"### 📋 Pasted WhatsApp image {pidx}")
+            try:
+                st.image(data, caption="Pasted from clipboard", use_container_width=True)
+                status.info("Step 1/4 — OCR reading pasted image…")
+                extracted = ocr_image(data)
+                progress.progress(0.35, text="OCR completed")
+                with st.expander("🔎 Extracted text / OCR", expanded=False):
+                    st.text(extracted[:12000] if extracted else "[No text detected]")
+                if extracted.strip():
+                    status.info("Step 3/4 — Parsing pasted image…")
+                    customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.65+v*0.25,0.90), text=t))
+                    show_order_result(customer, rows, f"pasted_image_{pidx}")
+                else:
+                    st.error("Pasted image: no readable text was detected.")
+            except Exception as e:
+                st.error(f"Pasted image {pidx}: {e}")
+
         if message:
             status.info("Step 1/4 — Reading WhatsApp text…")
             customer,rows=parse_order(message,lambda v,t: progress.progress(v,text=t))
