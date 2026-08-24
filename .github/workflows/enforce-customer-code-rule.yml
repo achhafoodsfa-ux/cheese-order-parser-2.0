@@ -1,0 +1,67 @@
+name: Enforce customer-code ignore rule
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, 'Enforce customer-code ignore rule') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch parser
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          app = Path('app.py')
+          text = app.read_text(encoding='utf-8')
+
+          # Strictly identify standalone customer/BP identifiers and never send them to product mapping.
+          marker = 'def parse_order(text, progress=None):\n'
+          helper = '''def is_customer_identifier(line):\n    """Return True for standalone customer/BP identifiers; never use these for product mapping."""\n    t = norm(line).strip()\n    if not t:\n        return False\n    # Common customer/BP formats: CFS-12345, CFS12345, BP-12345, BP12345.\n    return bool(re.fullmatch(r"(?:cfs|bp)[\\s_-]*[0-9]{3,}", t, re.I))\n\n'''
+          if 'def is_customer_identifier(line):' not in text:
+              if marker not in text:
+                  raise SystemExit('parse_order marker not found')
+              text = text.replace(marker, helper + marker, 1)
+
+          old = '''    for i,line in enumerate(lines):\n        if i==0 and not re.search(r"\\d",line): customer=line.strip(); continue\n        code=find_product(line); qty,unit=parse_quantity(line)'''
+          new = '''    for i,line in enumerate(lines):\n        if i==0 and not re.search(r"\\d",line):\n            customer=line.strip(); continue\n        if is_customer_identifier(line):\n            continue\n        code=find_product(line); qty,unit=parse_quantity(line)'''
+          if old not in text:
+              raise SystemExit('parse_order loop marker not found')
+          text = text.replace(old, new, 1)
+          app.write_text(text, encoding='utf-8')
+
+          ai = Path('ai_order_parser.py')
+          ai_text = ai.read_text(encoding='utf-8')
+          old_ai = 'Never invent or return SAP FG codes. Customer codes/IDs (for example CFS..., BP codes, phone numbers, invoice numbers) are NOT product identifiers and must be ignored for product mapping.'
+          new_ai = 'Never invent or return SAP FG codes. Customer codes/IDs (for example CFS..., BP codes, phone numbers, invoice numbers) are NEVER product identifiers. Ignore standalone customer/BP identifiers completely and NEVER use them for product lookup or mapping.'
+          if old_ai in ai_text:
+              ai_text = ai_text.replace(old_ai, new_ai, 1)
+          ai.write_text(ai_text, encoding='utf-8')
+
+      - name: Validate
+        run: |
+          python -m py_compile app.py ai_order_parser.py
+          grep -q 'def is_customer_identifier' app.py
+          grep -q 'NEVER product identifiers' ai_order_parser.py || grep -q 'NEVER product identifiers' ai_order_parser.py
+
+      - name: Commit and remove workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py ai_order_parser.py
+          git commit -m "Enforce customer-code ignore rule"
+          git rm .github/workflows/enforce-customer-code-rule.yml
+          git commit -m "Remove temporary customer-code patch workflow"
+          git push
