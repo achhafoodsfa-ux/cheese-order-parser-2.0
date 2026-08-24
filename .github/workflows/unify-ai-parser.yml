@@ -1,0 +1,85 @@
+name: Unify AI Into Main Parser
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch main parser
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          app = Path('app.py')
+          text = app.read_text(encoding='utf-8')
+
+          # AI is always the first understanding layer. The helper itself falls back to local OCR on API failures.
+          text = re.sub(r'\n\s*ai_enabled = st\.checkbox\("🧠 Use AI Smart Parsing \(recommended\)".*?\n', '\n', text, count=1)
+
+          old_img = '''                if ai_enabled:\n                    ai_result = ai_parse_order_image(data)\n                    extracted = ai_to_parser_text(ai_result)\n                    st.caption("🧠 AI interpretation used; FG mapping remains local/authoritative.")\n                else:\n                    extracted = ocr_image(data)'''
+          new_img = '''                ai_result = ai_parse_order_image(data)\n                extracted = ai_to_parser_text(ai_result)\n                st.caption("🧠 AI assists order understanding; your local master/rules remain authoritative for FG mapping.")'''
+          if old_img not in text:
+              raise SystemExit('Main pasted-image AI block not found; refusing to modify app.py')
+          text = text.replace(old_img, new_img, 1)
+
+          old_text = '''            if ai_enabled:\n                ai_result = ai_parse_order_text(message)\n                parser_text = ai_to_parser_text(ai_result)\n                st.caption("🧠 AI interpretation used; customer codes are ignored for product mapping.")\n                with st.expander("🔎 AI interpretation", expanded=False):\n                    st.json(ai_result)\n            else:\n                ai_result = {"customer_name": "", "items": []}\n                parser_text = message'''
+          new_text = '''            ai_result = ai_parse_order_text(message)\n            parser_text = ai_to_parser_text(ai_result)\n            st.caption("🧠 AI assists order understanding; customer codes are ignored for product mapping.")\n            with st.expander("🔎 AI interpretation", expanded=False):\n                st.json(ai_result)'''
+          if old_text not in text:
+              raise SystemExit('Main text AI block not found; refusing to modify app.py')
+          text = text.replace(old_text, new_text, 1)
+
+          text = text.replace('if ai_enabled and ai_result.get("customer_name"):', 'if ai_result.get("customer_name"):', 2)
+
+          # For uploaded images, send the original image to AI. For PDFs/docs/text, AI receives the extracted text.
+          old_file = '''                else:\n                    extracted=str(content)\n                    with st.expander("🔎 Extracted text / OCR",expanded=False):st.text(extracted[:12000] if extracted else "[No text detected]")\n                    if extracted.strip():\n                        status.info("Step 3/4 — Parsing extracted order…");customer,rows=parse_order(extracted,lambda v,t: progress.progress(min(0.65+v*0.25,0.90),text=t));show_order_result(customer,rows,f.name)\n                    else:st.error(f"{f.name}: no readable text was detected.")'''
+          new_file = '''                else:\n                    ext = Path(f.name).suffix.lower()\n                    if ext in IMAGE_EXTS:\n                        ai_result = ai_parse_order_image(f.getvalue())\n                        extracted = ai_to_parser_text(ai_result)\n                        st.caption("🧠 AI assisted image understanding; final FG mapping is local.")\n                        with st.expander("🔎 AI interpretation",expanded=False):st.json(ai_result)\n                        customer_name = ai_result.get("customer_name", "")\n                    else:\n                        extracted=str(content)\n                        ai_result = ai_parse_order_text(extracted)\n                        extracted = ai_to_parser_text(ai_result)\n                        st.caption("🧠 AI assisted text/document understanding; final FG mapping is local.")\n                        with st.expander("🔎 AI interpretation",expanded=False):st.json(ai_result)\n                        customer_name = ai_result.get("customer_name", "")\n                    if extracted.strip():\n                        status.info("Step 3/4 — Mapping products and quantities…")\n                        customer,rows=parse_order(extracted,lambda v,t: progress.progress(min(0.65+v*0.25,0.90),text=t))\n                        customer = customer_name or customer\n                        show_order_result(customer,rows,f.name)\n                    else:st.error(f"{f.name}: no readable order was detected.")'''
+          if old_file not in text:
+              raise SystemExit('Main uploaded-file block not found; refusing to modify app.py')
+          text = text.replace(old_file, new_file, 1)
+
+          # Box / boxes are exactly the same as CTN / carton / cartons.
+          old_q = 'm=re.search(r"(\\d+(?:\\.\\d+)?)\\s*(ctn|carton|cartons|pkt|packet|packets|pcs|pc|units?|kg)?\\b",t)'
+          new_q = 'm=re.search(r"(\\d+(?:\\.\\d+)?)\\s*(ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|units?|kg)?\\b",t)'
+          if old_q in text:
+              text = text.replace(old_q, new_q, 1)
+          old_u = 'if unit in ("ctn","carton","cartons"):return qty,"CTN"'
+          new_u = 'if unit in ("ctn","carton","cartons","box","boxes"):return qty,"CTN"'
+          if old_u in text:
+              text = text.replace(old_u, new_u, 1)
+
+          app.write_text(text, encoding='utf-8')
+
+          # Remove the extra AI-only page so there is literally one parser UI.
+          page = Path('pages/🧠 AI Smart Parser.py')
+          if page.exists():
+              page.unlink()
+
+      - name: Validate
+        run: |
+          python -m py_compile app.py ai_order_parser.py
+          grep -q 'ai_parse_order_text' app.py
+          grep -q 'ai_parse_order_image' app.py
+          grep -q 'box|boxes' app.py
+          test ! -e 'pages/🧠 AI Smart Parser.py'
+
+      - name: Commit changes and remove workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py pages 'requirements.txt'
+          git add -u .github/workflows/unify-ai-parser.yml
+          git commit -m "Unify AI into main parser"
+          git rm .github/workflows/unify-ai-parser.yml
+          git commit -m "Remove temporary parser patch workflow"
+          git push
