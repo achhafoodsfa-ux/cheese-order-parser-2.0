@@ -1,9 +1,12 @@
 import base64
+import io
 import json
 import os
 import re
 from typing import Any, Dict, List
 
+from PIL import Image, ImageFilter, ImageOps
+import pytesseract
 from openai import OpenAI, RateLimitError, APIError, APITimeoutError, APIConnectionError
 
 GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.6-27b")
@@ -46,12 +49,23 @@ INSTRUCTIONS = """
 You are the reasoning brain for a cheese order parser.
 Your job is UNDERSTANDING, not final SAP-code assignment.
 
-IMPORTANT OUTPUT BEHAVIOR:
-1. A screenshot/text may contain 1 customer or MANY customers (10+ is normal). NEVER merge different customers into one order.
-2. First identify customer/order boundaries, then identify each customer's product lines.
-3. Return one object in orders[] per distinct customer/order block.
-4. Preserve the customer's name as text. Customer codes/BP/CFS numbers are NOT product identifiers. Ignore them for product lookup.
-5. Never invent FG/SAP codes. Final FG mapping is performed by the local product master/rules.
+MULTI-CUSTOMER WHATSAPP SCREENSHOT RULES:
+1. A screenshot may contain 1 customer or MANY customers. 10+ customer orders in one screenshot is normal.
+2. Read the ENTIRE image from top to bottom. Do not stop after the first visible order.
+3. Identify every WhatsApp sender/customer name, chat heading, sender label, or clear order block.
+4. Treat each distinct customer/order block as a separate object in orders[]. NEVER merge different customers.
+5. Keep every product line attached to the customer whose message/block contains it.
+6. If the same customer appears more than once in the screenshot, keep those messages under the same customer only when the identity is clear; otherwise keep separate blocks rather than guessing.
+7. Preserve the customer name exactly as visible when possible.
+8. Customer codes/BP/CFS numbers are NOT product identifiers. Ignore them for product lookup.
+9. Never invent FG/SAP codes. Final FG mapping is performed by the local product master/rules.
+10. Do not return a single generic order just because multiple names are hard to read. Make your best effort to identify every visible order.
+
+IMAGE READING RULES:
+- Inspect the original image visually AND use any OCR text supplied in the user message as a cross-check.
+- WhatsApp UI text such as time, ticks, phone numbers, delivery notes, greetings, addresses and dates is not an order item.
+- A sender/customer name followed by one or more product lines defines an order block.
+- Keep each block independent even when the same product is requested by several customers.
 
 PRODUCT UNDERSTANDING RULES:
 - Classic shredd / classic shredded = Classic Mozzarella Shredded. Local rule: FG-02-0036.
@@ -63,9 +77,7 @@ PRODUCT UNDERSTANDING RULES:
 - Ignore ratios/weights embedded in product names as quantities: 70/30, 50/50, 2kg, 2.5kg, 1kg, 800gm, etc. are product attributes unless an explicit order quantity is stated.
 - Quantity must be taken from the explicit quantity/unit expression, preferably the number immediately associated with CTN/box/carton/pkt/pcs/kg.
 - Example: "70/30 shredded local 10 ctn" means quantity 10 CTN, NOT 70.
-- Ignore greetings, delivery notes, addresses, phone numbers, dates, prices, invoice numbers, customer codes and unrelated chatter.
-- Do not merge two customers just because they request the same product.
-- Keep each line attached to the correct customer.
+- Ignore prices, invoice numbers, phone numbers, dates and unrelated chatter.
 """.strip()
 
 
@@ -120,6 +132,46 @@ def _fallback(text: str, reason: str) -> Dict[str, Any]:
     }
 
 
+def _prepare_image(image_bytes: bytes) -> tuple[bytes, str]:
+    """Normalize screenshot size/contrast so tiny WhatsApp text is easier to read."""
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    width, height = image.size
+    max_dim = max(width, height)
+    target_min = 2800
+    if max_dim < target_min:
+        scale = target_min / max_dim
+        image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+    elif max_dim > 5500:
+        scale = 5500 / max_dim
+        image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+    image = ImageOps.autocontrast(image)
+    image = image.filter(ImageFilter.SHARPEN)
+    out = io.BytesIO()
+    image.save(out, format="JPEG", quality=92, optimize=True)
+    return out.getvalue(), "image/jpeg"
+
+
+def _ocr_image(image_bytes: bytes) -> str:
+    """OCR the screenshot as a second reading channel for small chat text."""
+    try:
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        width, height = image.size
+        if max(width, height) < 3000:
+            scale = 3000 / max(width, height)
+            image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+        gray = ImageOps.grayscale(image)
+        gray = ImageOps.autocontrast(gray)
+        gray = gray.filter(ImageFilter.SHARPEN)
+        parts = []
+        for psm in (6, 11):
+            txt = pytesseract.image_to_string(gray, config=f"--psm {psm}")
+            if txt.strip():
+                parts.append(txt.strip())
+        return "\n\n--- OCR PASS ---\n\n".join(parts)
+    except Exception:
+        return ""
+
+
 def _call_groq_text(text: str) -> Dict[str, Any]:
     key = _secret("GROQ_API_KEY")
     if not key:
@@ -128,7 +180,7 @@ def _call_groq_text(text: str) -> Dict[str, Any]:
     response = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[{"role": "system", "content": INSTRUCTIONS}, {"role": "user", "content": text}],
-        response_format={"type": "json_object"}, temperature=0, max_tokens=8000,
+        response_format={"type": "json_object"}, temperature=0, max_tokens=12000,
     )
     return _normalize(_parse_json(response.choices[0].message.content))
 
@@ -137,18 +189,31 @@ def _call_groq_image(image_bytes: bytes, mime: str = "image/png") -> Dict[str, A
     key = _secret("GROQ_API_KEY")
     if not key:
         raise RuntimeError("GROQ_API_KEY is not configured")
-    client = OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
-    data_url = f"data:{mime};base64," + base64.b64encode(image_bytes).decode("ascii")
+    prepared, prepared_mime = _prepare_image(image_bytes)
+    ocr_text = _ocr_image(prepared)
+    data_url = f"data:{prepared_mime};base64," + base64.b64encode(prepared).decode("ascii")
+    prompt = """Read this WhatsApp screenshot completely from top to bottom.
+
+Create one separate order object for EVERY distinct customer/order block visible in the screenshot. Do not stop after the first customer. Make sure every product line and quantity is attached to the correct customer.
+
+Use the OCR transcript below only as a reading aid. The image itself is authoritative when OCR is noisy.
+
+OCR TRANSCRIPT:
+---
+%s
+---
+
+Return ALL orders in the required JSON structure.""" % (ocr_text or "[No OCR text available]")
     response = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[
             {"role": "system", "content": INSTRUCTIONS},
             {"role": "user", "content": [
-                {"type": "text", "text": "Parse ALL customer orders visible in this image. Keep every customer separate."},
+                {"type": "text", "text": prompt},
                 {"type": "image_url", "image_url": {"url": data_url}},
             ]},
         ],
-        response_format={"type": "json_object"}, temperature=0, max_tokens=10000,
+        response_format={"type": "json_object"}, temperature=0, max_tokens=12000,
     )
     return _normalize(_parse_json(response.choices[0].message.content))
 
@@ -170,11 +235,21 @@ def _call_openai_image(image_bytes: bytes, mime: str = "image/png") -> Dict[str,
     if not key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
     client = OpenAI(api_key=key)
-    data_url = f"data:{mime};base64," + base64.b64encode(image_bytes).decode("ascii")
+    prepared, prepared_mime = _prepare_image(image_bytes)
+    ocr_text = _ocr_image(prepared)
+    data_url = f"data:{prepared_mime};base64," + base64.b64encode(prepared).decode("ascii")
+    prompt = """Read the ENTIRE WhatsApp screenshot from top to bottom. Extract EVERY distinct customer/order block, not just the first one. Keep each customer's products and quantities separate.
+
+Use this OCR transcript as a second reading channel, but trust the screenshot when OCR is wrong:
+---
+%s
+---
+
+Return ALL customer orders in the required JSON structure.""" % (ocr_text or "[No OCR text available]")
     response = client.responses.create(
         model=OPENAI_MODEL, store=False, instructions=INSTRUCTIONS,
         input=[{"role": "user", "content": [
-            {"type": "input_text", "text": "Parse ALL customer orders visible in this image. Keep every customer separate."},
+            {"type": "input_text", "text": prompt},
             {"type": "input_image", "image_url": data_url, "detail": "high"},
         ]}],
         text={"format": {"type": "json_schema", "name": "cheese_orders", "schema": SCHEMA, "strict": True}},
