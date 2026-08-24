@@ -125,6 +125,9 @@ def find_product(text):
     t=norm(text)
     saved=apply_saved_aliases(t)
     if saved:return saved
+    # Explicit authoritative mappings from master training.
+    if "50/50" in t and ("shred" in t or "shredded" in t):return "FG-03-0024"
+    if "classic" in t and ("shred" in t or "shredded" in t) and "70/30" not in t:return "FG-02-0036"
     priority=[("red mozz blk","FG-01-0006"),("red mozzarella block","FG-01-0006"),("blue shredd","FG-01-0042"),("blue shred","FG-01-0042"),("danish mozzarella block","FG-01-0018"),("danish mozz block","FG-01-0018"),("classic mozzarella block","FG-01-0012"),("classic mozz block","FG-01-0012"),("burger slice","FG-02-0028"),("orange slice","FG-02-0028")]
     for key,code in priority:
         if key in t:return code
@@ -152,7 +155,6 @@ def find_product(text):
     if "silver" in t:return "FG-01-0111"
     if "danish" in t and "shred" in t:return "FG-01-0030"
     if "danish" in t:return "FG-01-0018"
-    if "classic" in t and "shred" in t:return "FG-02-0036"
     if "classic" in t and "cheddar" in t and "block" in t:return "FG-02-0012"
     if "pizza cheddar" in t or ("pizza" in t and "cheddar" in t and "block" in t):return "FG-02-0006"
     for key,code in [("mf white","FG-02-0102"),("mf yellow","FG-02-0104"),("pro white","FG-02-0106"),("pro w","FG-02-0106"),("pro yellow","FG-02-0108"),("max white","FG-02-0110"),("max yellow","FG-02-0112"),("pt white","FG-02-0118"),("pt w","FG-02-0118"),("pt yellow","FG-02-0120"),("pt y","FG-02-0120"),("vf white","FG-02-0114"),("vf yellow","FG-02-0116")]:
@@ -313,6 +315,8 @@ with st.sidebar:
     st.write("• Red mozz blk = Achha Mozz Block")
     st.write("• Blue shredd = Achha Mozz Shredded")
     st.write("• Danish Mozz Block = Danish, never Achha")
+    st.write("• 50/50 Shredded = Imported 50/50 Shredded 2kg")
+    st.write("• Classic Shredded = FG-02-0036")
 
 order_tab,teach_tab,excel_tab=st.tabs(["🤖 Smart Order Input","🎓 Teach / Save Rule","📊 Excel / CSV"])
 
