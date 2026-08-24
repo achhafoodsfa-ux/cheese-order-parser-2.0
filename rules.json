@@ -1,6 +1,57 @@
 {
-  "product_aliases": [],
+  "product_aliases": [
+    {
+      "aliases": [
+        "50/50 shredd",
+        "50/50 shredded",
+        "50 50 shredd",
+        "50 50 shredded",
+        "imported 50/50 shredd",
+        "imported 50/50 shredded",
+        "imported 50/50 mozzarella cheddar shredd",
+        "imported 50/50 mozzarella/cheddar shredded"
+      ],
+      "item_code": "FG-03-0024",
+      "master_name": "Imported 50/50 Mozzarella/Cheddar Shredded 2 KG (Un-Branded)",
+      "pack_kg": 2,
+      "pcs_ctn": 5,
+      "priority": 100
+    },
+    {
+      "aliases": [
+        "classic cheddar shredd",
+        "classic cheddar shredded",
+        "classic cheddar shred",
+        "classic cheddar shred 2kg",
+        "classic cheddar shredded 2kg"
+      ],
+      "item_code": "FG-02-0066",
+      "master_name": "Classic Cheddar Shred 2KG (Un-Branded)",
+      "pack_kg": 2,
+      "pcs_ctn": 5,
+      "priority": 100
+    },
+    {
+      "aliases": [
+        "classic mozzarella shredd",
+        "classic mozzarella shredded",
+        "classic mozzarella shred 2kg",
+        "classic mozzarella shredded 2kg",
+        "classic shredd"
+      ],
+      "item_code": "FG-02-0036",
+      "master_name": "Classic Mozzarella Shredded 2 KG (Un-Branded)",
+      "pack_kg": 2,
+      "pcs_ctn": 5,
+      "priority": 90,
+      "note": "Use only when the order does not explicitly indicate cheddar. Explicit 'Classic Cheddar Shred' maps to FG-02-0066."
+    }
+  ],
   "quantity_rules": [],
   "customer_rules": [],
-  "general_rules": []
+  "general_rules": [
+    "The supplied SAP product master is authoritative for product code mapping.",
+    "Prefer exact/explicit product-family matches over generic fuzzy matches.",
+    "Do not map Classic Cheddar Shred to Classic Mozzarella Shredded when 'cheddar' is explicitly present."
+  ]
 }
