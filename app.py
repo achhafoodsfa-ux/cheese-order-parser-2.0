@@ -11,7 +11,6 @@ import pytesseract
 import fitz  # PyMuPDF
 from pypdf import PdfReader
 from docx import Document
-from streamlit_paste_button import paste_image_button
 from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text
 
 st.set_page_config(page_title="Cheese SAP Order Parser", page_icon="🧀", layout="wide")
@@ -336,101 +335,63 @@ order_tab,teach_tab,excel_tab=st.tabs(["🤖 Smart Order Input","🎓 Teach / Sa
 
 with order_tab:
     st.subheader("Smart Order Input")
-    st.info("Type/paste an order and press **Enter** to start. Or drag & drop one or more files into the same input.")
-    st.info("📋 Copy a WhatsApp screenshot, then click **Paste Image**. For files, use the large uploader below; drag & drop is supported there.")
+    st.caption("One box for text, WhatsApp screenshots, images, Excel, PDF, CSV, Word and multiple files.")
 
-    paste_result = paste_image_button("📋 Paste Image from Clipboard", key="paste_image_clipboard", errors="ignore")
-    fallback_files = st.file_uploader(
-        "📎 DROP FILES / IMAGES HERE — PNG, JPG, PDF, Excel, CSV, Word, TXT",
-        type=sorted(IMAGE_EXTS|TABULAR_EXTS|TEXT_EXTS|PDF_EXTS|DOC_EXTS),
-        accept_multiple_files=True,
-        key="smart_files",
-        help="Drag files directly into this box or click Browse files.",
+    submission = st.chat_input(
+        "Type/paste WhatsApp order — Ctrl+V screenshot or drag & drop files",
+        accept_file="multiple",
+        file_type=sorted(IMAGE_EXTS | TABULAR_EXTS | TEXT_EXTS | PDF_EXTS | DOC_EXTS),
+        max_upload_size=200,
+        key="smart_order_input",
     )
-    fallback_text=st.text_area("Or paste WhatsApp text here",height=130,placeholder="Customer Name\n3 CTN 70/30 local\n1 CTN 70/30 new",key="fallback_text")
-    run_fallback=st.button("🚀 Process pasted text / files",type="primary")
 
-    pasted_images = []
-    if paste_result is not None and getattr(paste_result, "image_data", None) is not None:
-        import io
-        buf = io.BytesIO()
-        paste_result.image_data.save(buf, format="PNG")
-        pasted_images.append(buf.getvalue())
-
-    files=[];message=""
-    if run_fallback:
-        message=fallback_text.strip();files.extend(fallback_files or [])
-
-    if run_fallback or pasted_images:
-        progress=st.progress(0,text="Starting parser…")
-        status=st.empty()
-        for pidx, data in enumerate(pasted_images, 1):
-            st.markdown("---")
-            st.markdown(f"### 📋 Pasted WhatsApp image {pidx}")
-            try:
-                st.image(data, caption="Pasted from clipboard", use_container_width=True)
-                status.info("Step 1/4 — Reading pasted image…")
-                ai_result = ai_parse_order_image(data)
-                extracted = ai_to_parser_text(ai_result)
-                st.caption("🧠 AI assists order understanding; your local master/rules remain authoritative for FG mapping.")
-                progress.progress(0.35, text="Image reading completed")
-                with st.expander("🔎 AI/OCR interpretation", expanded=False):
-                    st.text(extracted[:12000] if extracted else "[No readable order detected]")
-                if extracted.strip():
-                    status.info("Step 3/4 — Mapping products and quantities…")
-                    customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.65+v*0.25,0.90), text=t))
-                    if ai_result.get("customer_name"):
-                        customer = ai_result["customer_name"]
-                    show_order_result(customer, rows, f"pasted_image_{pidx}")
-                else:
-                    st.error("Pasted image: no readable text was detected.")
-            except Exception as e:
-                st.error(f"Pasted image {pidx}: {e}")
-
+    if submission is not None:
+        message = (getattr(submission, "text", "") or "").strip()
+        files = list(getattr(submission, "files", []) or [])
+        progress = st.progress(0, text="Starting parser…")
+        status = st.empty()
         if message:
-            status.info("Step 1/4 — Reading WhatsApp text…")
-            ai_result = ai_parse_order_text(message)
-            parser_text = ai_to_parser_text(ai_result)
-            st.caption("🧠 AI assists order understanding; customer codes are ignored for product mapping.")
-            with st.expander("🔎 AI interpretation", expanded=False):
-                st.json(ai_result)
-            customer,rows=parse_order(parser_text,lambda v,t: progress.progress(v,text=t))
-            if ai_result.get("customer_name"):
-                customer = ai_result["customer_name"]
-            status.info("Step 2/4 — Mapping products and quantities…")
-            show_order_result(customer,rows,"chat_text")
-        for idx,f in enumerate(files,1):
-            st.markdown("---");st.markdown(f"### 📎 {f.name}")
             try:
-                status.info(f"Step 1/4 — Reading {f.name}…");kind,content=read_uploaded_file(f)
-                progress.progress(min(0.35+idx/max(1,len(files))*0.25,0.60),text=f"Extracted {f.name}")
-                if kind in ("excel","csv"):
-                    status.info("Step 2/4 — Processing spreadsheet rows…");result=process_tabular(content)
-                    if result.empty:st.warning(f"{f.name}: no valid mapped rows found.")
-                    else:st.success(f"{f.name}: {len(result)} mapped rows extracted.");st.dataframe(result,use_container_width=True)
-                else:
-                    ext = Path(f.name).suffix.lower()
-                    if ext in IMAGE_EXTS:
-                        ai_result = ai_parse_order_image(f.getvalue())
-                        extracted = ai_to_parser_text(ai_result)
-                        st.caption("🧠 AI assisted image understanding; final FG mapping is local.")
-                        with st.expander("🔎 AI interpretation",expanded=False):st.json(ai_result)
-                        customer_name = ai_result.get("customer_name", "")
+                status.info("🧠 AI is understanding the order…")
+                ai_result = ai_parse_order_text(message)
+                parser_text = ai_to_parser_text(ai_result)
+                with st.expander("🔎 AI interpretation", expanded=False): st.json(ai_result)
+                progress.progress(0.45, text="AI understanding completed")
+                customer, rows = parse_order(parser_text, lambda v,t: progress.progress(min(0.45 + v*0.45, 0.90), text=t))
+                customer = ai_result.get("customer_name") or customer
+                show_order_result(customer, rows, "chat_text")
+            except Exception as e: st.error(f"Text parsing error: {e}")
+        for idx, f in enumerate(files, 1):
+            st.markdown("---")
+            st.markdown(f"### 📎 {f.name}")
+            try:
+                status.info(f"Reading {f.name}…")
+                kind, content = read_uploaded_file(f)
+                if kind in ("excel", "csv"):
+                    result = process_tabular(content)
+                    if result.empty: st.warning(f"{f.name}: no valid mapped rows found.")
                     else:
-                        extracted=str(content)
-                        ai_result = ai_parse_order_text(extracted)
-                        extracted = ai_to_parser_text(ai_result)
-                        st.caption("🧠 AI assisted text/document understanding; final FG mapping is local.")
-                        with st.expander("🔎 AI interpretation",expanded=False):st.json(ai_result)
-                        customer_name = ai_result.get("customer_name", "")
+                        st.success(f"{f.name}: {len(result)} mapped rows extracted.")
+                        st.dataframe(result, use_container_width=True)
+                        for customer_name, group in result.groupby("Customer", dropna=False):
+                            cust = str(customer_name).strip()
+                            st.markdown(f"### {cust or 'Order'}")
+                            merged = {}
+                            for _, r in group.iterrows(): merged[r["FG Code"]] = merged.get(r["FG Code"], 0) + int(r["SAP Qty (PKT)"])
+                            sap = "\n".join(sap_line(c,q) for c,q in merged.items())
+                            st.code(sap, language="text")
+                            st.download_button("📋 Copy/Download SAP Order", sap, file_name=f"{cust or 'order'}_SAP.txt", mime="text/plain", key=f"sap_{idx}_{abs(hash(cust))}")
+                else:
+                    ai_result = ai_parse_order_image(f.getvalue()) if kind == "image" else ai_parse_order_text(str(content))
+                    extracted = ai_to_parser_text(ai_result)
+                    with st.expander("🔎 AI interpretation", expanded=False): st.json(ai_result)
                     if extracted.strip():
-                        status.info("Step 3/4 — Mapping products and quantities…")
-                        customer,rows=parse_order(extracted,lambda v,t: progress.progress(min(0.65+v*0.25,0.90),text=t))
-                        customer = customer_name or customer
-                        show_order_result(customer,rows,f.name)
-                    else:st.error(f"{f.name}: no readable order was detected.")
-            except Exception as e:st.error(f"{f.name}: {e}")
-        progress.progress(1.0,text="Done — order processed and validated.");status.success("Step 4/4 — Complete. Review the Triple-check table before SAP paste.")
+                        customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.50 + v*0.40, 0.92), text=t))
+                        customer = ai_result.get("customer_name") or customer
+                        show_order_result(customer, rows, f.name)
+                    else: st.warning(f"{f.name}: no readable order was detected.")
+            except Exception as e: st.error(f"{f.name}: {e}")
+        progress.progress(1.0, text="Done")
 
 with teach_tab:
     st.subheader("🎓 Teach the Parser")
