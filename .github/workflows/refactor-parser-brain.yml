@@ -3,13 +3,14 @@ name: Final Parser Integration
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   integrate:
-    if: ${{ !contains(github.event.head_commit.message, 'Final parser integration') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, 'Final parser integration') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +26,6 @@ jobs:
           app = Path('app.py')
           text = app.read_text(encoding='utf-8')
 
-          # ---- Dependencies: native Streamlit universal chat input ----
           req = Path('requirements.txt')
           req_text = req.read_text(encoding='utf-8') if req.exists() else ''
           req_lines = [x for x in req_text.splitlines() if x.strip()]
@@ -35,19 +35,16 @@ jobs:
           req_lines.insert(0, 'streamlit>=1.61,<2')
           req.write_text('\n'.join(req_lines) + '\n', encoding='utf-8')
 
-          # ---- Imports ----
           text = text.replace('from streamlit_paste_button import paste_image_button\n', '')
           text = text.replace('from ai_order_parser import ai_parse_order_text, ai_parse_order_image, ai_to_parser_text\n',
               'from ai_order_parser import parse_orders_text, parse_orders_image, orders_to_parser_groups\n')
           if 'from streamlit.components.v1 import html as components_html' not in text:
               text = text.replace('import streamlit as st\n', 'import streamlit as st\nfrom streamlit.components.v1 import html as components_html\n')
 
-          # ---- Robust quantity parser: explicit unit quantity wins; ratios/weights never become quantity ----
           q_start = text.index('def parse_quantity(')
           q_end = text.index('def is_customer_identifier(', q_start)
           new_q = r'''def parse_quantity(line):
     t=norm(line)
-    # Prefer the final explicit quantity+unit expression. This prevents 70/30, 50/50, 2kg, etc. in product names from being read as order qty.
     explicit=list(re.finditer(r"(\d+(?:\.\d+)?)\s*(ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|units?|kg)\b",t,re.I))
     if explicit:
         m=explicit[-1]
@@ -56,12 +53,8 @@ jobs:
         if unit in ("ctn","carton","cartons","box","boxes"):return qty,"CTN"
         if unit in ("pkt","packet","packets","pcs","pc","unit","units"):return qty,"PKT"
         if unit=="kg":return qty,"KG"
-
-    # Special legacy slice wording.
     m=re.search(r"(\d+(?:\.\d+)?)\s*kg\s+.*burger\s*(?:/|or)?\s*(?:orange)?\s*slice",t)
     if m:return int(float(m.group(1))),"PKT"
-
-    # If no explicit unit exists, remove product ratios first and use the remaining numeric signal cautiously.
     stripped=re.sub(r"\b\d+(?:\.\d+)?\s*/\s*\d+(?:\.\d+)?\b", " ", t)
     nums=re.findall(r"\b\d+(?:\.\d+)?\b", stripped)
     if len(nums)==1:
@@ -72,28 +65,22 @@ jobs:
 '''
           text=text[:q_start]+new_q+text[q_end:]
 
-          # ---- Multi-customer state-machine parser ----
           p_start = text.index('def parse_order(')
           p_end = text.index('def sap_line(', p_start)
           new_parse = r'''def parse_order(text, progress=None):
     lines=[x.strip() for x in str(text).splitlines() if x.strip()]
-    rows=[]
-    customer=""
+    rows=[]; customer=""
     product_signal=re.compile(r"(cheese|cheddar|mozz|mozzarella|shred|shredded|dice|block|slice|butter|ghee|nivora|latina|verona|danish|top cow|achha|allana|50/50|70/30|pizza|silver|imported|local|classic)",re.I)
     if progress: progress(0.05,"Reading order text…")
     for i,line in enumerate(lines):
         has_leading_qty=re.match(r"^\s*(\d+(?:\.\d+)?)\s*(?:ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|units?|kg)\b", line, re.I)
         standalone_customer=(not has_leading_qty and not re.search(r"\d", line) and not product_signal.search(line))
         if standalone_customer:
-            customer=line.strip()
-            continue
-        if is_customer_identifier(line):
-            continue
-        code=find_product(line)
-        qty,unit=parse_quantity(line)
+            customer=line.strip(); continue
+        if is_customer_identifier(line): continue
+        code=find_product(line); qty,unit=parse_quantity(line)
         if not code or qty is None:
-            rows.append({"Source":line,"Customer":customer,"FG Code":"UNMAPPED","Product":"","Input Qty":qty,"Input Unit":unit,"SAP Qty (PKT)":"","Status":"CHECK MAPPING"})
-            continue
+            rows.append({"Source":line,"Customer":customer,"FG Code":"UNMAPPED","Product":"","Input Qty":qty,"Input Unit":unit,"SAP Qty (PKT)":"","Status":"CHECK MAPPING"}); continue
         p=PRODUCTS[code]
         sap_qty=round(qty/p["kg"]) if unit=="KG" else int(qty*p["pcs_ctn"]) if unit=="CTN" else int(qty)
         rows.append({"Source":line,"Customer":customer,"FG Code":code,"Product":p["name"],"Input Qty":qty,"Input Unit":unit,"SAP Qty (PKT)":sap_qty,"Status":"OK"})
@@ -104,7 +91,6 @@ jobs:
 '''
           text=text[:p_start]+new_parse+text[p_end:]
 
-          # ---- Replace only the main order-processing tab with one universal Smart Input ----
           start = text.index('order_tab,teach_tab,excel_tab=st.tabs([')
           teach_start = text.index('with teach_tab:', start)
           new_order = r'''order_tab,teach_tab,excel_tab=st.tabs(["🤖 Smart Order Parser","🎓 Teach / Save Rule","📊 Excel / CSV"])
@@ -130,22 +116,18 @@ with order_tab:
             parser_text=group.get("parser_text","")
             mapped_customer,rows=parse_order(parser_text)
             customer=customer or mapped_customer or f"UNKNOWN CUSTOMER {gidx}"
-            ok=[r for r in rows if r.get("Status")=="OK"]
-            bad=[r for r in rows if r.get("Status")!="OK"]
-            if not ok and not bad:
-                continue
+            ok=[r for r in rows if r.get("Status")=="OK"]; bad=[r for r in rows if r.get("Status")!="OK"]
+            if not ok and not bad: continue
             with right.container(border=True):
                 st.markdown(f"#### {customer}")
                 merged={}
-                for r in ok:
-                    merged[r["FG Code"]]=merged.get(r["FG Code"],0)+int(r["SAP Qty (PKT)"])
+                for r in ok: merged[r["FG Code"]]=merged.get(r["FG Code"],0)+int(r["SAP Qty (PKT)"])
                 sap="\n".join(sap_line(c,q) for c,q in merged.items())
                 if sap:
                     st.code(sap,language="text")
                     _copy_sap_button(sap,f"{source_label}_{gidx}")
                     st.download_button("⬇️ Download SAP Order",sap,file_name=f"{customer}_SAP.txt",mime="text/plain",key=f"dl_{source_label}_{gidx}")
-                else:
-                    st.warning("No mapped products found.")
+                else: st.warning("No mapped products found.")
                 if bad:
                     st.warning("Some lines need manual checking.")
                     st.dataframe(pd.DataFrame(bad),use_container_width=True)
@@ -155,28 +137,17 @@ with order_tab:
     with left:
         with st.container(border=True):
             st.markdown("**📥 INPUT — paste, type, or drop anything here**")
-            submission=st.chat_input(
-                "WhatsApp order… Ctrl+V screenshot… drag files…",
-                key="universal_order_input",
-                accept_file="multiple",
-                file_type=["png","jpg","jpeg","webp","bmp","tif","tiff","pdf","xlsx","xls","csv","docx","txt"],
-                max_upload_size=50,
-                width="stretch",
-            )
-            st.caption("Tip: copy a screenshot from WhatsApp Web and press Ctrl+V directly inside this input. You can attach multiple files in the same submission.")
+            submission=st.chat_input("WhatsApp order… Ctrl+V screenshot… drag files…",key="universal_order_input",accept_file="multiple",file_type=["png","jpg","jpeg","webp","bmp","tif","tiff","pdf","xlsx","xls","csv","docx","txt"],max_upload_size=50,width="stretch")
+            st.caption("Copy a screenshot from WhatsApp Web and press Ctrl+V directly inside this input. You can attach multiple files in the same submission.")
 
     if submission:
         rendered_total=0
         user_text=getattr(submission,"text","") or submission.get("text","")
         files=getattr(submission,"files",[]) or submission.get("files",[])
-
-        # Text input — AI brain handles multi-customer separation.
         if user_text.strip():
             with st.spinner("🧠 Brain is understanding the order…"):
                 ai_result=parse_orders_text(user_text)
             rendered_total += _render_ai_orders(ai_result,"text")
-
-        # Attachments — all types handled from the same input box.
         for fidx,f in enumerate(files or [],1):
             ext=Path(f.name).suffix.lower()
             try:
@@ -185,38 +156,28 @@ with order_tab:
                         ai_result=parse_orders_image(f.getvalue(), getattr(f,"type","image/png") or "image/png")
                     rendered_total += _render_ai_orders(ai_result,f"img{fidx}")
                 elif ext in {".xlsx",".xls",".csv"}:
-                    kind,content=read_uploaded_file(f)
-                    result=process_tabular(content)
+                    kind,content=read_uploaded_file(f); result=process_tabular(content)
                     if not result.empty:
                         for customer,group in result.groupby("Customer",dropna=False):
-                            cust=str(customer or "UNKNOWN CUSTOMER")
-                            rows=[]
-                            for _,r in group.iterrows():
-                                rows.append({"Status":"OK","FG Code":r["FG Code"],"Product":r["Product"],"Input Qty":r["SAP Qty (PKT)"],"Input Unit":"PKT","SAP Qty (PKT)":r["SAP Qty (PKT)"],"Source":f.name})
+                            cust=str(customer or "UNKNOWN CUSTOMER"); merged={}
+                            for _,r in group.iterrows(): merged[r["FG Code"]]=merged.get(r["FG Code"],0)+int(r["SAP Qty (PKT)"])
+                            sap="\n".join(sap_line(c,q) for c,q in merged.items())
                             with right.container(border=True):
-                                st.markdown(f"#### {cust}")
-                                merged={}
-                                for r in rows: merged[r["FG Code"]]=merged.get(r["FG Code"],0)+int(r["SAP Qty (PKT)"])
-                                sap="\n".join(sap_line(c,q) for c,q in merged.items())
-                                st.code(sap,language="text");_copy_sap_button(sap,f"sheet_{fidx}_{cust}")
+                                st.markdown(f"#### {cust}"); st.code(sap,language="text"); _copy_sap_button(sap,f"sheet_{fidx}_{cust}")
                                 st.download_button("⬇️ Download SAP Order",sap,file_name=f"{cust}_SAP.txt",mime="text/plain",key=f"sheetdl_{fidx}_{abs(hash(cust))}")
-                                rendered_total+=1
+                            rendered_total+=1
                 else:
                     kind,content=read_uploaded_file(f)
                     with st.spinner(f"🧠 Understanding {f.name}…"):
                         ai_result=parse_orders_text(str(content))
                     rendered_total += _render_ai_orders(ai_result,f"file{fidx}")
             except Exception as exc:
-                with right.container(border=True):
-                    st.error(f"{f.name}: {exc}")
-
+                with right.container(border=True): st.error(f"{f.name}: {exc}")
         if rendered_total==0:
-            with right.container(border=True):
-                st.warning("I could not identify a valid customer/product order from this input.")
+            with right.container(border=True): st.warning("I could not identify a valid customer/product order from this input.")
 
 '''
-          text = text[:start] + new_order + text[teach_start:]
-
+          text=text[:start]+new_order+text[teach_start:]
           app.write_text(text,encoding='utf-8')
 
       - name: Validate
