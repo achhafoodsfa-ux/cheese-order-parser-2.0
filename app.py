@@ -170,10 +170,10 @@ def parse_quantity(line):
     t=norm(line)
     m=re.search(r"(\d+(?:\.\d+)?)\s*kg\s+.*burger\s*(?:/|or)?\s*(?:orange)?\s*slice",t)
     if m:return int(float(m.group(1))),"PKT"
-    m=re.search(r"(\d+(?:\.\d+)?)\s*(ctn|carton|cartons|pkt|packet|packets|pcs|pc|units?|kg)?\b",t)
+    m=re.search(r"(\d+(?:\.\d+)?)\s*(ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|units?|kg)?\b",t)
     if not m:return None,None
     qty=float(m.group(1)); unit=(m.group(2) or "").lower(); qty=int(qty) if qty.is_integer() else qty
-    if unit in ("ctn","carton","cartons"):return qty,"CTN"
+    if unit in ("ctn","carton","cartons","box","boxes"):return qty,"CTN"
     if unit in ("pkt","packet","packets","pcs","pc","unit","units"):return qty,"PKT"
     if unit=="kg":return qty,"KG"
     return qty,"CTN" if qty>10 else "PKT"

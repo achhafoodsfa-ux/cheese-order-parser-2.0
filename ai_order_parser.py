@@ -40,7 +40,7 @@ Respect these business rules while normalizing product wording:
 - For Top Cow only, White Shredded = White Dice and Yellow Shredded = Yellow Dice.
 - For other products, keep Dice vs Shredded vs Block exactly as written.
 - Achha White Dice means Achha White Dice.
-- Preserve quantities and units exactly when clearly stated. CTN/carton/cartons = CTN; pkt/packet/packets/pcs/pc/units = PKT/PCS as appropriate; kg = KG.
+- Preserve quantities and units exactly when clearly stated. CTN/carton/cartons/box/boxes = CTN; pkt/packet/packets/pcs/pc/units = PKT/PCS as appropriate; kg = KG.
 - Ignore delivery instructions, greetings, phone numbers, addresses, customer codes, invoice numbers, dates, prices, and unrelated chatter.
 - When wording is ambiguous, keep the best product phrase in `product` and do not invent details.
 """.strip()
