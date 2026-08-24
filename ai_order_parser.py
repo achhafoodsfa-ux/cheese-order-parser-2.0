@@ -1,3 +1,4 @@
+# AI adapter: unified multi-order brain with Groq vision/text first, OpenAI fallback.
 from smart_brain import (
     ai_parse_order_text,
     ai_parse_order_image,
