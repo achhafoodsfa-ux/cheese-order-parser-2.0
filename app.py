@@ -148,7 +148,7 @@ def find_product(text):
     if "achha" in t and "yellow" in t and "shred" in t:return "FG-01-0054"
     if "achha" in t and "shred" in t:return "FG-01-0042"
     if "top cow" in t and "yellow" in t:return "FG-02-0049"
-    if "top cow" in t and "white" in t:return "FG-02-0048"
+    if "top cow" in t and ("white" in t or "dice" in t or "shred" in t):return "FG-02-0048"
     if "top cow" in t and "cheddar" in t and "block" in t:return "FG-02-0068"
     if "top cow" in t and "block" in t:return "FG-02-0060"
     if "verona" in t and "block" in t:return "FG-03-0025"
