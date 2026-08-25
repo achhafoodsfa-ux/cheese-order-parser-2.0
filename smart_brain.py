@@ -212,6 +212,7 @@ def _call_groq_text(text: str) -> Dict[str, Any]:
 
 def _call_groq_image(image_bytes: bytes, mime: str = "image/png") -> Dict[str, Any]:
     key = _secret("GROQ_API_KEY")
+    client = OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
     if not key:
         raise RuntimeError("GROQ_API_KEY is not configured")
     prepared, pmime = _prepare_image(image_bytes)
