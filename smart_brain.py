@@ -292,7 +292,36 @@ def parse_orders_text(text: str) -> Dict[str, Any]:
 
 
 def parse_orders_image(image_bytes: bytes, mime: str = "image/png") -> Dict[str, Any]:
-    return _run(lambda: _call_groq_image(image_bytes, mime), lambda: _call_openai_image(image_bytes, mime), "")
+    """Parse an image with vision first, then fall back to OCR + text parsing if vision returns no orders."""
+    primary_result = _run(
+        lambda: _call_groq_image(image_bytes, mime),
+        lambda: _call_openai_image(image_bytes, mime),
+        "",
+    )
+    if primary_result.get("orders"):
+        return primary_result
+
+    try:
+        prepared, _ = _prepare_image(image_bytes)
+        ocr_raw = _ocr_image(prepared)
+        segmented = _segment_customer_blocks(ocr_raw)
+        if segmented.strip():
+            fallback_result = parse_orders_text(segmented)
+            if fallback_result.get("orders"):
+                return fallback_result
+        return {
+            "orders": [],
+            "_fallback": True,
+            "_fallback_text": ocr_raw,
+            "_fallback_reason": primary_result.get("_fallback_reason", "vision_returned_no_orders"),
+        }
+    except Exception as exc:
+        return {
+            "orders": [],
+            "_fallback": True,
+            "_fallback_text": "",
+            "_fallback_reason": f"ocr_fallback_failed:{type(exc).__name__}",
+        }
 
 
 def orders_to_parser_groups(result: Dict[str, Any]) -> List[Dict[str, str]]:
