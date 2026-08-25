@@ -1,0 +1,77 @@
+name: Fix deterministic customer blocks
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-customer-blocks.yml'
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch v3 customer block parser
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('smart_brain_v3.py')
+          s=p.read_text()
+          s=s.replace('50/50|70/30|pizza|silver|imported|local|classic|nishter|red paper', '50/50|70/30|pizza|silver|imported|local|classic')
+          start=s.index('def looks_product(line):')
+          end=s.index('def canonical_product(p):')
+          new=r'''def looks_product(line):
+              t=line.lower().strip()
+              if not t or any(re.fullmatch(p,t,re.I) for p in NOISE): return False
+              if re.search(r'\b\d+(?:\.\d+)?\s*(?:ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|units?)\b', t):
+                  return True
+              return bool(PRODUCT_HINTS.search(t) and re.search(r'\b\d+(?:\.\d+)?\b', t))
+
+          def looks_customer_heading(line):
+              t=re.sub(r'\s+',' ',str(line)).strip()
+              if not t or any(re.fullmatch(p,t,re.I) for p in NOISE): return False
+              if looks_product(t): return False
+              if re.search(r'\d',t): return False
+              if len(t.split())>8: return False
+              # WhatsApp chatter that must never become a customer.
+              if re.search(r'^(forwarded|self pick|tomorrow|today|yesterday|ok|okay|thanks|thank you)$',t,re.I): return False
+              return True
+
+          def customer_blocks(text):
+              lines=clean_lines(text)
+              heads=[]
+              for i,line in enumerate(lines):
+                  if not looks_customer_heading(line): continue
+                  # A real customer heading must have an actual product line before the next heading.
+                  for j in range(i+1,min(i+7,len(lines))):
+                      if looks_product(lines[j]):
+                          heads.append((i,line)); break
+                      if looks_customer_heading(lines[j]): break
+              blocks=[]
+              for n,(pos,name) in enumerate(heads):
+                  stop=heads[n+1][0] if n+1<len(heads) else len(lines)
+                  products=[x for x in lines[pos+1:stop] if looks_product(x)]
+                  if products:
+                      blocks.append((name, products))
+              return blocks
+
+          '''
+          s=s[:start]+new+s[end:]
+          old='''def parse_text(text):\n    clean=segment_blocks(text)\n    r=groq().chat.completions.create(model=GROQ_MODEL,messages=[{"role":"system","content":SYSTEM},{"role":"user","content":"Parse ONLY this order text. Each CUSTOMER BLOCK must remain a separate order:\\n\\n"+clean}],response_format={"type":"json_object"},temperature=0,max_tokens=12000)\n    return normalize(parse_json(r.choices[0].message.content))\n'''
+          new2='''def parse_text(text):\n    blocks=customer_blocks(text)\n    if blocks:\n        orders=[]\n        for name,products in blocks:\n            block="CUSTOMER: "+name+"\\n"+"\\n".join(products)\n            try:\n                r=groq().chat.completions.create(model=GROQ_MODEL,messages=[{"role":"system","content":SYSTEM},{"role":"user","content":"Parse ONLY this ONE customer block. Do not add another customer.\\n\\n"+block}],response_format={"type":"json_object"},temperature=0,max_tokens=4000)\n                parsed=normalize(parse_json(r.choices[0].message.content))\n                for o in parsed.get("orders",[]):\n                    o["customer_name"]=name\n                    orders.append(o)\n            except Exception:\n                pass\n        if orders: return {"orders":orders}\n    clean=segment_blocks(text)\n    r=groq().chat.completions.create(model=GROQ_MODEL,messages=[{"role":"system","content":SYSTEM},{"role":"user","content":"Parse ONLY this order text. Each CUSTOMER BLOCK must remain a separate order:\\n\\n"+clean}],response_format={"type":"json_object"},temperature=0,max_tokens=12000)\n    return normalize(parse_json(r.choices[0].message.content))\n'''
+          if old not in s: raise SystemExit('parse_text pattern not found')
+          s=s.replace(old,new2)
+          oldimg='''def parse_orders_image(b,mime="image/png"):\n    # First use OCR blocks because customer boundaries are more important than visual guessing.\n    ocr=ocr_image(b)\n    segmented=segment_blocks(ocr) if ocr else ""\n    if segmented and segmented!=ocr:\n        r=parse_orders_text(segmented)\n        if r.get("orders"):return r\n'''
+          newimg='''def parse_orders_image(b,mime="image/png"):\n    # First use deterministic OCR customer blocks; never let one AI call merge customers.\n    ocr=ocr_image(b)\n    if ocr:\n        blocks=customer_blocks(ocr)\n        if blocks:\n            orders=[]\n            for name,products in blocks:\n                block="CUSTOMER: "+name+"\\n"+"\\n".join(products)\n                try:\n                    r=parse_orders_text(block)\n                    for o in r.get("orders",[]):\n                        o["customer_name"]=name\n                        orders.append(o)\n                except Exception:\n                    pass\n            if orders: return {"orders":orders}\n    segmented=segment_blocks(ocr) if ocr else ""\n    if segmented and segmented!=ocr:\n        r=parse_orders_text(segmented)\n        if r.get("orders"):return r\n'''
+          if oldimg not in s: raise SystemExit('image pattern not found')
+          s=s.replace(oldimg,newimg)
+          p.write_text(s)
+          PY
+          python -m py_compile smart_brain_v3.py app.py ai_order_parser.py
+      - name: Commit and remove repair workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add smart_brain_v3.py
+          git commit -m "Fix deterministic WhatsApp customer block segmentation" || true
+          git push
+          git rm .github/workflows/fix-customer-blocks.yml
+          git commit -m "Remove one-time customer block repair workflow"
+          git push
