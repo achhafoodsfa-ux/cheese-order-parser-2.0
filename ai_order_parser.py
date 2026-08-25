@@ -1,5 +1,4 @@
-# Unified AI adapter. Uses the focused v2 order brain so legacy OCR logic is bypassed.
-from smart_brain_v2 import (
+from smart_brain_v3 import (
     ai_parse_order_text,
     ai_parse_order_image,
     ai_to_parser_text,
