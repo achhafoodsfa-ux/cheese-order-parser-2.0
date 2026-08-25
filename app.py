@@ -354,12 +354,29 @@ with order_tab:
             try:
                 status.info("🧠 AI is understanding the order…")
                 ai_result = ai_parse_order_text(message)
-                parser_text = ai_to_parser_text(ai_result)
                 with st.expander("🔎 AI interpretation", expanded=False): st.json(ai_result)
-                progress.progress(0.45, text="AI understanding completed")
-                customer, rows = parse_order(parser_text, lambda v,t: progress.progress(min(0.45 + v*0.45, 0.90), text=t))
-                customer = ai_result.get("customer_name") or customer
-                show_order_result(customer, rows, "chat_text")
+                orders = ai_result.get("orders") or []
+                if orders:
+                    for order_no, order in enumerate(orders, 1):
+                        customer_name = str(order.get("customer_name", "")).strip()
+                        item_lines = [customer_name] if customer_name else []
+                        for item in order.get("items", []):
+                            q = item.get("quantity"); unit = item.get("unit", "PKT"); product = item.get("product", "")
+                            if product and q not in (None, ""):
+                                qf = float(q)
+                                qtxt = str(int(qf)) if qf.is_integer() else str(qf)
+                                item_lines.append(f"{qtxt} {unit} {product}")
+                        if len(item_lines) > 1:
+                            progress.progress(min(0.45 + 0.35*order_no/max(1,len(orders)), 0.90), text=f"Mapping customer {order_no}/{len(orders)}…")
+                            customer, rows = parse_order("\n".join(item_lines), lambda v,t: progress.progress(min(0.45 + v*0.35, 0.90), text=t))
+                            show_order_result(customer_name or customer, rows, f"chat_text_{order_no}")
+                else:
+                    parser_text = ai_to_parser_text(ai_result)
+                    if parser_text.strip():
+                        customer, rows = parse_order(parser_text, lambda v,t: progress.progress(min(0.45 + v*0.45, 0.90), text=t))
+                        show_order_result(ai_result.get("customer_name") or customer, rows, "chat_text")
+                    else:
+                        st.warning("No readable order was detected.")
             except Exception as e: st.error(f"Text parsing error: {e}")
         for idx, f in enumerate(files, 1):
             st.markdown("---")
@@ -383,13 +400,29 @@ with order_tab:
                             st.download_button("📋 Copy/Download SAP Order", sap, file_name=f"{cust or 'order'}_SAP.txt", mime="text/plain", key=f"sap_{idx}_{abs(hash(cust))}")
                 else:
                     ai_result = ai_parse_order_image(f.getvalue()) if kind == "image" else ai_parse_order_text(str(content))
-                    extracted = ai_to_parser_text(ai_result)
                     with st.expander("🔎 AI interpretation", expanded=False): st.json(ai_result)
-                    if extracted.strip():
-                        customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.50 + v*0.40, 0.92), text=t))
-                        customer = ai_result.get("customer_name") or customer
-                        show_order_result(customer, rows, f.name)
-                    else: st.warning(f"{f.name}: no readable order was detected.")
+                    orders = ai_result.get("orders") or []
+                    if orders:
+                        for order_no, order in enumerate(orders, 1):
+                            customer_name = str(order.get("customer_name", "")).strip()
+                            item_lines = [customer_name] if customer_name else []
+                            for item in order.get("items", []):
+                                q = item.get("quantity"); unit = item.get("unit", "PKT"); product = item.get("product", "")
+                                if product and q not in (None, ""):
+                                    qf = float(q)
+                                    qtxt = str(int(qf)) if qf.is_integer() else str(qf)
+                                    item_lines.append(f"{qtxt} {unit} {product}")
+                            if len(item_lines) > 1:
+                                progress.progress(min(0.50 + 0.35*order_no/max(1,len(orders)), 0.92), text=f"Mapping customer {order_no}/{len(orders)}…")
+                                customer, rows = parse_order("\n".join(item_lines), lambda v,t: progress.progress(min(0.50 + v*0.35, 0.92), text=t))
+                                show_order_result(customer_name or customer, rows, f"{f.name}_{order_no}")
+                    else:
+                        extracted = ai_to_parser_text(ai_result)
+                        if extracted.strip():
+                            customer, rows = parse_order(extracted, lambda v,t: progress.progress(min(0.50 + v*0.40, 0.92), text=t))
+                            show_order_result(ai_result.get("customer_name") or customer, rows, f.name)
+                        else:
+                            st.warning(f"{f.name}: no readable order was detected.")
             except Exception as e: st.error(f"{f.name}: {e}")
         progress.progress(1.0, text="Done")
 
