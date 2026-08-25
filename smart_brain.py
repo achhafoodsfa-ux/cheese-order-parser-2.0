@@ -21,63 +21,53 @@ SCHEMA = {
                 "type": "object",
                 "properties": {
                     "customer_name": {"type": "string"},
-                    "items": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "raw_text": {"type": "string"},
-                                "product": {"type": "string"},
-                                "quantity": {"type": "number"},
-                                "unit": {"type": "string", "enum": ["CTN", "PKT", "KG", "PCS"]},
-                            },
-                            "required": ["raw_text", "product", "quantity", "unit"],
-                            "additionalProperties": False,
+                    "items": {"type": "array", "items": {
+                        "type": "object",
+                        "properties": {
+                            "raw_text": {"type": "string"},
+                            "product": {"type": "string"},
+                            "quantity": {"type": "number"},
+                            "unit": {"type": "string", "enum": ["CTN", "PKT", "KG", "PCS"]}
                         },
-                    },
+                        "required": ["raw_text", "product", "quantity", "unit"],
+                        "additionalProperties": False
+                    }}
                 },
                 "required": ["customer_name", "items"],
-                "additionalProperties": False,
-            },
+                "additionalProperties": False
+            }
         }
     },
     "required": ["orders"],
-    "additionalProperties": False,
+    "additionalProperties": False
 }
 
 INSTRUCTIONS = """
 You are the reasoning brain for a cheese order parser.
-Your job is UNDERSTANDING, not final SAP-code assignment.
 
-MULTI-CUSTOMER WHATSAPP SCREENSHOT RULES:
-1. A screenshot may contain 1 customer or MANY customers. 10+ customer orders in one screenshot is normal.
-2. Read the ENTIRE image from top to bottom. Do not stop after the first visible order.
-3. Identify every WhatsApp sender/customer name, chat heading, sender label, or clear order block.
-4. Treat each distinct customer/order block as a separate object in orders[]. NEVER merge different customers.
-5. Keep every product line attached to the customer whose message/block contains it.
-6. If the same customer appears more than once in the screenshot, keep those messages under the same customer only when the identity is clear; otherwise keep separate blocks rather than guessing.
-7. Preserve the customer name exactly as visible when possible.
-8. Customer codes/BP/CFS numbers are NOT product identifiers. Ignore them for product lookup.
-9. Never invent FG/SAP codes. Final FG mapping is performed by the local product master/rules.
-10. Do not return a single generic order just because multiple names are hard to read. Make your best effort to identify every visible order.
+MULTI-CUSTOMER WHATSAPP RULE — THIS IS CRITICAL:
+- One screenshot can contain 5, 10, or more customers.
+- FIRST find customer/order blocks. ONLY THEN read products inside each block.
+- A customer heading/sender name followed by product lines starts an order block.
+- A blank line or a new customer heading normally ends the previous block.
+- NEVER combine lines from different customers into one order.
+- Return ONE object in orders[] for EACH distinct visible customer/order block.
+- Read the ENTIRE screenshot top-to-bottom. Do not stop at the first order.
+- Preserve customer names exactly as visible where possible.
+- If a customer name is hard to read, make a best-effort name from the visible sender text; NEVER silently merge that block into another customer.
 
-IMAGE READING RULES:
-- Inspect the original image visually AND use any OCR text supplied in the user message as a cross-check.
-- WhatsApp UI text such as time, ticks, phone numbers, delivery notes, greetings, addresses and dates is not an order item.
-- A sender/customer name followed by one or more product lines defines an order block.
-- Keep each block independent even when the same product is requested by several customers.
-
-PRODUCT UNDERSTANDING RULES:
-- Classic shredd / classic shredded = Classic Mozzarella Shredded. Local rule: FG-02-0036.
-- 50/50 shredd / 50/50 shredded = Imported 50/50 Mozzarella/Cheddar Shredded 2 KG. Local rule: FG-03-0024.
-- For TOP COW ONLY: White Shredded = White Dice; Yellow Shredded = Yellow Dice.
-- For every other product, Dice, Shredded and Block are distinct and must not be substituted.
-- Achha White Dice = Achha White Dice (local rule FG-01-0124).
-- Box, boxes, carton, cartons and CTN are the same unit: CTN.
-- Ignore ratios/weights embedded in product names as quantities: 70/30, 50/50, 2kg, 2.5kg, 1kg, 800gm, etc. are product attributes unless an explicit order quantity is stated.
-- Quantity must be taken from the explicit quantity/unit expression, preferably the number immediately associated with CTN/box/carton/pkt/pcs/kg.
-- Example: "70/30 shredded local 10 ctn" means quantity 10 CTN, NOT 70.
-- Ignore prices, invoice numbers, phone numbers, dates and unrelated chatter.
+PRODUCT RULES:
+- Classic shredd/shredded -> FG-02-0036.
+- 50/50 shredd/shredded -> Imported 50/50 2kg -> FG-03-0024.
+- Top Cow only: white shredded = white dice; yellow shredded = yellow dice.
+- Dice, shredded and block remain DISTINCT for all other products.
+- Achha White Dice -> FG-01-0124.
+- Box/carton/CTN = CTN.
+- 70/30 and 50/50 are ratios, not quantities.
+- 2kg, 2.5kg, 1kg, 800gm are product attributes, not quantities, unless explicitly ordered.
+- Example: '70/30 shredded local 10 ctn' => quantity 10 CTN.
+- Ignore phone numbers, dates, prices, invoice numbers, greetings, addresses and customer codes for product mapping.
+- Never invent FG codes; local master mapping is authoritative.
 """.strip()
 
 
@@ -104,7 +94,7 @@ def _parse_json(text: str) -> Dict[str, Any]:
 
 
 def _normalize(data: Dict[str, Any]) -> Dict[str, Any]:
-    orders: List[Dict[str, Any]] = []
+    out = []
     for order in data.get("orders", []):
         customer = str(order.get("customer_name", "")).strip()
         items = []
@@ -119,57 +109,92 @@ def _normalize(data: Dict[str, Any]) -> Dict[str, Any]:
                 "unit": str(item.get("unit", "PKT")).upper(),
             })
         if customer or items:
-            orders.append({"customer_name": customer, "items": items})
-    return {"orders": orders}
-
-
-def _fallback(text: str, reason: str) -> Dict[str, Any]:
-    return {
-        "orders": [{"customer_name": "", "items": []}],
-        "_fallback": True,
-        "_fallback_text": text,
-        "_fallback_reason": reason,
-    }
+            out.append({"customer_name": customer, "items": items})
+    return {"orders": out}
 
 
 def _prepare_image(image_bytes: bytes) -> tuple[bytes, str]:
-    """Normalize screenshot size/contrast so tiny WhatsApp text is easier to read."""
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    width, height = image.size
-    max_dim = max(width, height)
-    target_min = 2800
-    if max_dim < target_min:
-        scale = target_min / max_dim
-        image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
-    elif max_dim > 5500:
-        scale = 5500 / max_dim
-        image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+    w, h = image.size
+    m = max(w, h)
+    if m < 3200:
+        s = 3200 / m
+        image = image.resize((int(w*s), int(h*s)), Image.Resampling.LANCZOS)
+    elif m > 6000:
+        s = 6000 / m
+        image = image.resize((int(w*s), int(h*s)), Image.Resampling.LANCZOS)
     image = ImageOps.autocontrast(image)
     image = image.filter(ImageFilter.SHARPEN)
     out = io.BytesIO()
-    image.save(out, format="JPEG", quality=92, optimize=True)
+    image.save(out, format="JPEG", quality=94, optimize=True)
     return out.getvalue(), "image/jpeg"
 
 
 def _ocr_image(image_bytes: bytes) -> str:
-    """OCR the screenshot as a second reading channel for small chat text."""
     try:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        width, height = image.size
-        if max(width, height) < 3000:
-            scale = 3000 / max(width, height)
-            image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
         gray = ImageOps.grayscale(image)
         gray = ImageOps.autocontrast(gray)
+        if max(gray.size) < 3200:
+            s = 3200 / max(gray.size)
+            gray = gray.resize((int(gray.size[0]*s), int(gray.size[1]*s)), Image.Resampling.LANCZOS)
         gray = gray.filter(ImageFilter.SHARPEN)
-        parts = []
+        texts = []
         for psm in (6, 11):
-            txt = pytesseract.image_to_string(gray, config=f"--psm {psm}")
-            if txt.strip():
-                parts.append(txt.strip())
-        return "\n\n--- OCR PASS ---\n\n".join(parts)
+            t = pytesseract.image_to_string(gray, config=f"--psm {psm}").strip()
+            if t:
+                texts.append(t)
+        return "\n\n--- OCR PASS ---\n\n".join(texts)
     except Exception:
         return ""
+
+
+def _looks_like_product(line: str) -> bool:
+    t = line.lower()
+    if re.search(r"\b(?:ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|blk|block|kg)\b", t):
+        return True
+    return bool(re.search(r"cheese|cheddar|mozz|mozzarella|shred|shredded|dice|block|slice|butter|ghee|nivora|latina|verona|danish|top cow|achha|allana|50/50|70/30|pizza|silver|imported|local|classic", t))
+
+
+def _is_probable_customer_heading(line: str) -> bool:
+    t = line.strip()
+    if not t or _looks_like_product(t):
+        return False
+    if re.search(r"\b(?:ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|kg|blk|block)\b", t, re.I):
+        return False
+    if re.search(r"\d", t):
+        return False
+    if len(t.split()) > 10:
+        return False
+    return True
+
+
+def _segment_customer_blocks(ocr: str) -> str:
+    """Turn OCR text into explicit CUSTOMER BLOCK markers before sending to vision."""
+    if not ocr.strip():
+        return ""
+    lines = [re.sub(r"\s+", " ", x).strip() for x in ocr.splitlines()]
+    blocks = []
+    current_name = None
+    current = []
+    for line in lines:
+        if not line:
+            continue
+        if _is_probable_customer_heading(line):
+            if current_name and current:
+                blocks.append((current_name, current))
+            current_name = line
+            current = []
+        elif current_name:
+            current.append(line)
+    if current_name and current:
+        blocks.append((current_name, current))
+    if not blocks:
+        return ocr
+    parts = []
+    for i, (name, lines_) in enumerate(blocks, 1):
+        parts.append(f"=== CUSTOMER BLOCK {i} ===\nCUSTOMER: {name}\n" + "\n".join(lines_))
+    return "\n\n".join(parts)
 
 
 def _call_groq_text(text: str) -> Dict[str, Any]:
@@ -177,94 +202,88 @@ def _call_groq_text(text: str) -> Dict[str, Any]:
     if not key:
         raise RuntimeError("GROQ_API_KEY is not configured")
     client = OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
-    response = client.chat.completions.create(
+    r = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[{"role": "system", "content": INSTRUCTIONS}, {"role": "user", "content": text}],
         response_format={"type": "json_object"}, temperature=0, max_tokens=12000,
     )
-    return _normalize(_parse_json(response.choices[0].message.content))
+    return _normalize(_parse_json(r.choices[0].message.content))
 
 
 def _call_groq_image(image_bytes: bytes, mime: str = "image/png") -> Dict[str, Any]:
     key = _secret("GROQ_API_KEY")
     if not key:
         raise RuntimeError("GROQ_API_KEY is not configured")
-    prepared, prepared_mime = _prepare_image(image_bytes)
-    ocr_text = _ocr_image(prepared)
-    data_url = f"data:{prepared_mime};base64," + base64.b64encode(prepared).decode("ascii")
-    prompt = """Read this WhatsApp screenshot completely from top to bottom.
+    prepared, pmime = _prepare_image(image_bytes)
+    ocr_raw = _ocr_image(prepared)
+    segmented = _segment_customer_blocks(ocr_raw)
+    data_url = f"data:{pmime};base64," + base64.b64encode(prepared).decode("ascii")
+    prompt = f"""Read the ENTIRE WhatsApp screenshot top-to-bottom.
 
-Create one separate order object for EVERY distinct customer/order block visible in the screenshot. Do not stop after the first customer. Make sure every product line and quantity is attached to the correct customer.
+The OCR channel has already detected these possible customer blocks. Use them as anchors, then verify against the image:
 
-Use the OCR transcript below only as a reading aid. The image itself is authoritative when OCR is noisy.
+{segmented or '[OCR did not find clear blocks]'}
 
-OCR TRANSCRIPT:
----
-%s
----
+Rules:
+- Return EVERY customer block as a separate orders[] object.
+- Never merge two blocks.
+- Keep every product line with the block where it appears.
+- Read all visible blocks, not only the first one.
+- OCR can be wrong; the image is authoritative.
 
-Return ALL orders in the required JSON structure.""" % (ocr_text or "[No OCR text available]")
-    response = client.chat.completions.create(
+Return all orders in JSON."""
+    r = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[
             {"role": "system", "content": INSTRUCTIONS},
             {"role": "user", "content": [
                 {"type": "text", "text": prompt},
                 {"type": "image_url", "image_url": {"url": data_url}},
-            ]},
+            ]}
         ],
         response_format={"type": "json_object"}, temperature=0, max_tokens=12000,
     )
-    return _normalize(_parse_json(response.choices[0].message.content))
+    return _normalize(_parse_json(r.choices[0].message.content))
 
 
 def _call_openai_text(text: str) -> Dict[str, Any]:
     key = _secret("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
-    client = OpenAI(api_key=key)
-    response = client.responses.create(
+    r = OpenAI(api_key=key).responses.create(
         model=OPENAI_MODEL, store=False, instructions=INSTRUCTIONS, input=text,
         text={"format": {"type": "json_schema", "name": "cheese_orders", "schema": SCHEMA, "strict": True}},
     )
-    return _normalize(_parse_json(response.output_text))
+    return _normalize(_parse_json(r.output_text))
 
 
 def _call_openai_image(image_bytes: bytes, mime: str = "image/png") -> Dict[str, Any]:
     key = _secret("OPENAI_API_KEY")
     if not key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
-    client = OpenAI(api_key=key)
-    prepared, prepared_mime = _prepare_image(image_bytes)
-    ocr_text = _ocr_image(prepared)
-    data_url = f"data:{prepared_mime};base64," + base64.b64encode(prepared).decode("ascii")
-    prompt = """Read the ENTIRE WhatsApp screenshot from top to bottom. Extract EVERY distinct customer/order block, not just the first one. Keep each customer's products and quantities separate.
-
-Use this OCR transcript as a second reading channel, but trust the screenshot when OCR is wrong:
----
-%s
----
-
-Return ALL customer orders in the required JSON structure.""" % (ocr_text or "[No OCR text available]")
-    response = client.responses.create(
+    prepared, pmime = _prepare_image(image_bytes)
+    segmented = _segment_customer_blocks(_ocr_image(prepared))
+    data_url = f"data:{pmime};base64," + base64.b64encode(prepared).decode("ascii")
+    prompt = f"Read the whole WhatsApp screenshot. Return one separate orders[] object for EVERY customer block. Never merge blocks. Verify the OCR anchors below against the image:\n\n{segmented or '[No OCR anchors]'}"
+    r = OpenAI(api_key=key).responses.create(
         model=OPENAI_MODEL, store=False, instructions=INSTRUCTIONS,
-        input=[{"role": "user", "content": [
-            {"type": "input_text", "text": prompt},
-            {"type": "input_image", "image_url": data_url, "detail": "high"},
+        input=[{"role":"user","content":[
+            {"type":"input_text","text":prompt},
+            {"type":"input_image","image_url":data_url,"detail":"high"}
         ]}],
         text={"format": {"type": "json_schema", "name": "cheese_orders", "schema": SCHEMA, "strict": True}},
     )
-    return _normalize(_parse_json(response.output_text))
+    return _normalize(_parse_json(r.output_text))
 
 
-def _run(primary, secondary, fallback_text: str):
+def _run(primary, secondary, fallback_text=""):
     try:
         return primary()
     except (RateLimitError, APIError, APITimeoutError, APIConnectionError, RuntimeError, ValueError, json.JSONDecodeError):
         try:
             return secondary()
         except Exception as exc:
-            return _fallback(fallback_text, f"AI providers unavailable: {type(exc).__name__}")
+            return {"orders": [], "_fallback": True, "_fallback_text": fallback_text, "_fallback_reason": type(exc).__name__}
 
 
 def parse_orders_text(text: str) -> Dict[str, Any]:
@@ -280,7 +299,8 @@ def orders_to_parser_groups(result: Dict[str, Any]) -> List[Dict[str, str]]:
         return [{"customer_name": "", "parser_text": str(result.get("_fallback_text", ""))}]
     groups = []
     for order in result.get("orders", []):
-        lines = [str(order.get("customer_name", "")).strip()]
+        name = str(order.get("customer_name", "")).strip()
+        lines = [name] if name else []
         for item in order.get("items", []):
             q = item.get("quantity")
             unit = item.get("unit", "PKT")
@@ -288,7 +308,7 @@ def orders_to_parser_groups(result: Dict[str, Any]) -> List[Dict[str, str]]:
             if product and q not in (None, ""):
                 lines.append(f"{q} {unit} {product}")
         if len(lines) > 1:
-            groups.append({"customer_name": lines[0], "parser_text": "\n".join(lines)})
+            groups.append({"customer_name": name, "parser_text": "\n".join(lines)})
     return groups
 
 
@@ -296,7 +316,7 @@ def ai_parse_order_text(text: str) -> Dict[str, Any]:
     result = parse_orders_text(text)
     if result.get("orders"):
         first = result["orders"][0]
-        return {"customer_name": first.get("customer_name", ""), "items": first.get("items", []), "orders": result.get("orders", []), "_fallback": result.get("_fallback", False), "_fallback_text": result.get("_fallback_text", ""), "_fallback_reason": result.get("_fallback_reason", "")}
+        return {"customer_name": first.get("customer_name", ""), "items": first.get("items", []), "orders": result.get("orders", []), **{k: result[k] for k in result if k.startswith("_")}}
     return result
 
 
@@ -304,16 +324,14 @@ def ai_parse_order_image(image_bytes: bytes) -> Dict[str, Any]:
     result = parse_orders_image(image_bytes)
     if result.get("orders"):
         first = result["orders"][0]
-        return {"customer_name": first.get("customer_name", ""), "items": first.get("items", []), "orders": result.get("orders", []), "_fallback": result.get("_fallback", False), "_fallback_text": result.get("_fallback_text", ""), "_fallback_reason": result.get("_fallback_reason", "")}
+        return {"customer_name": first.get("customer_name", ""), "items": first.get("items", []), "orders": result.get("orders", []), **{k: result[k] for k in result if k.startswith("_")}}
     return result
 
 
 def ai_to_parser_text(result: Dict[str, Any]) -> str:
     if result.get("_fallback"):
         return str(result.get("_fallback_text", ""))
-    orders = result.get("orders") or []
-    if not orders:
-        orders = [{"customer_name": result.get("customer_name", ""), "items": result.get("items", [])}]
+    orders = result.get("orders") or [{"customer_name": result.get("customer_name", ""), "items": result.get("items", [])}]
     lines = []
     for order in orders:
         if order.get("customer_name"):
