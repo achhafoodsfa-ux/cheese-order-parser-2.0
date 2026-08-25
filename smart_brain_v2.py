@@ -1,311 +1,252 @@
 import base64
+import io
 import json
 import os
 import re
 from typing import Any, Dict, List
 
+from PIL import Image, ImageFilter, ImageOps
+import pytesseract
 from openai import OpenAI, RateLimitError, APIError, APITimeoutError, APIConnectionError
 
 GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.6-27b")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
 
 SCHEMA = {
-    "type": "object",
-    "properties": {
-        "orders": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "customer_name": {"type": "string"},
-                    "items": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "raw_text": {"type": "string"},
-                                "product": {"type": "string"},
-                                "quantity": {"type": "number"},
-                                "unit": {"type": "string", "enum": ["CTN", "PKT", "KG", "PCS"]},
-                            },
-                            "required": ["raw_text", "product", "quantity", "unit"],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["customer_name", "items"],
-                "additionalProperties": False,
-            },
-        }
-    },
-    "required": ["orders"],
-    "additionalProperties": False,
+    "type": "object", "properties": {"orders": {"type": "array", "items": {
+        "type": "object", "properties": {
+            "customer_name": {"type": "string"},
+            "items": {"type": "array", "items": {"type": "object", "properties": {
+                "raw_text": {"type": "string"}, "product": {"type": "string"},
+                "quantity": {"type": "number"},
+                "unit": {"type": "string", "enum": ["CTN", "PKT", "KG", "PCS"]}
+            }, "required": ["raw_text", "product", "quantity", "unit"], "additionalProperties": False}}
+        }, "required": ["customer_name", "items"], "additionalProperties": False
+    }}}, "required": ["orders"], "additionalProperties": False
 }
 
 SYSTEM = r'''
 You are the order-understanding brain for a cheese order parser.
+ONLY identify CUSTOMER/ORDER OWNER and PRODUCT + EXPLICIT ORDER QUANTITY.
+Ignore everything else.
 
-YOUR ONLY JOB:
-1) Identify the CUSTOMER / ORDER OWNER.
-2) Identify PRODUCT + EXPLICIT ORDER QUANTITY.
-Everything else is irrelevant and MUST be ignored.
+MULTI-CUSTOMER RULES:
+- A screenshot can contain 1, 5, 10, 20+ customers.
+- Read the entire input top-to-bottom.
+- FIRST identify every customer/order block, THEN read only product lines inside that block.
+- Every distinct customer/order block MUST be a separate orders[] object.
+- NEVER merge customers.
+- NEVER move a product between customers.
+- Never invent a customer. If a block has no reliable customer name, omit the block rather than merging it.
 
-MULTI-CUSTOMER WHATSAPP SCREENSHOT — HARD RULES:
-- One screenshot can contain 1, 5, 10, 20+ customers.
-- Read the ENTIRE image from top to bottom before producing output.
-- FIRST identify each customer/order block. THEN extract only product lines inside that block.
-- Every distinct customer/order block MUST become its own orders[] object.
-- NEVER merge two customers just because they ordered the same product.
-- NEVER move a product line from one customer to another.
-- If customer identity is visible, preserve it.
-- If a line is not clearly attached to a customer, do not guess a customer; keep it out rather than merging.
-
-IGNORE ALL NON-ORDER CONTENT:
-- WhatsApp timestamps: 10:31 PM, 10:31, 10:31 PM V, etc.
-- Forwarded / - Forwarded
-- Self pick
-- tomorrow / today / later
-- greetings, acknowledgements, chat commentary
-- phone numbers, addresses, locations, prices, invoice/payment notes
-- WhatsApp UI labels, ticks, read receipts, dates
-- OCR garbage and duplicated OCR text
+IGNORE:
+- timestamps / clock text such as 10:31 PM, 10:31 PM V
+- Forwarded, Self pick, today, tomorrow, greetings, chat commentary
+- phone numbers, addresses, locations, prices, invoices, payment notes
+- WhatsApp UI, ticks, dates, OCR garbage, duplicate text
 - customer codes / BP / CFS numbers for product mapping
 
-WHAT COUNTS AS A PRODUCT LINE:
-- A line containing a cheese/product name and an explicit quantity or pack expression.
-- Product names may be misspelled or abbreviated.
-- A product line may say CTN, carton, box, packet, pkt, pcs, blk/block, KG, etc.
-- Do NOT treat a clock time as quantity.
-- Ratio/weight in a product name is NOT quantity: 70/30, 50/50, 2kg, 2.5kg, 1kg, 800gm.
+PRODUCT LINE:
+- Must contain a real cheese/product reference and an explicit quantity/pack expression.
+- CTN/carton/box = CTN; packet/pkt = PKT; block/blk is product type.
+- 70/30 and 50/50 are ratios, not quantities. 2kg/2.5kg/1kg/800gm are product attributes.
+- Example: '70/30 shredded local 10 ctn' = 10 CTN, never 70 or 30.
 
-KNOWN BUSINESS RULES:
-- Classic shredd / classic shredded => Classic Mozzarella Shredded => FG-02-0036.
-- 50/50 shredd / 50/50 shredded => Imported 50/50 Mozzarella/Cheddar Shredded 2 KG => FG-03-0024.
-- TOP COW ONLY: White Shredded = White Dice; Yellow Shredded = Yellow Dice.
-- For all other products, Dice, Shredded and Block are different products.
+KNOWN RULES:
+- Classic shredd/shredded => FG-02-0036.
+- 50/50 shredd/shredded => FG-03-0024.
+- TOP COW ONLY: white shredded = white dice; yellow shredded = yellow dice.
+- For all other products Dice, Shredded and Block are distinct.
 - Achha White Dice => FG-01-0124.
-- Box / boxes / carton / cartons / CTN are the same unit: CTN.
-- "70/30 shredded local 10 ctn" means 10 CTN, NEVER 70 or 30.
-- Never invent an FG code. Local product master remains authoritative.
-
-OUTPUT:
-- Return ALL customers/orders.
-- Return only real product lines.
-- Customer names and product lines must remain correctly paired.
+- Never invent FG codes; local master is authoritative.
 '''.strip()
 
 NOISE = [
-    r"^[-–—]?\s*forwarded\s*$",
-    r"^self\s*pick\s*$",
+    r"^[-–—]?\s*forwarded\s*$", r"^self\s*pick\s*$",
     r"^(today|tomorrow|yesterday|later|thanks|thank you|ok|okay|salam|hello|hi)\s*$",
     r"^\d{1,2}:\d{2}(?:\s*[ap]m)?(?:\s*[a-z])?$",
-    r"^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}$",
-    r"^[-= ]*ocr(?:\s+pass)?[-= ]*$",
+    r"^[-= ]*ocr(?:\s+pass)?[-= ]*$"
 ]
+PRODUCT_HINTS = re.compile(r"cheese|cheddar|mozz|mozzarella|shred|shredded|dice|block|slice|butter|ghee|nivora|latina|verona|danish|top cow|achha|allana|50/50|70/30|pizza|silver|imported|local|classic", re.I)
+
 
 def _secret(name: str) -> str | None:
     try:
         import streamlit as st
         value = st.secrets.get(name)
-        if value:
-            return str(value)
-    except Exception:
-        pass
+        if value: return str(value)
+    except Exception: pass
     value = os.getenv(name)
     return str(value) if value else None
 
 
 def _clean_text(text: str) -> str:
-    lines: List[str] = []
-    seen = set()
-    for raw in str(text or "").splitlines():
-        line = re.sub(r"\s+", " ", raw).strip()
-        if not line:
-            continue
-        if any(re.fullmatch(p, line, flags=re.I) for p in NOISE):
-            continue
-        key = line.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        lines.append(line)
-    return "\n".join(lines)
+    out=[]; seen=set()
+    for raw in str(text or '').splitlines():
+        line=re.sub(r'\s+',' ',raw).strip()
+        if not line: continue
+        if any(re.fullmatch(p,line,re.I) for p in NOISE): continue
+        if re.fullmatch(r'\d{1,2}:\d{2}.*',line,re.I): continue
+        k=line.casefold()
+        if k in seen: continue
+        seen.add(k); out.append(line)
+    return '\n'.join(out)
 
 
 def _parse_json(value: str) -> Dict[str, Any]:
-    text = (value or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.I)
-        text = re.sub(r"\s*```$", "", text)
-    data = json.loads(text)
-    if not isinstance(data, dict):
-        raise ValueError("AI did not return an object")
+    text=(value or '').strip()
+    if text.startswith('```'):
+        text=re.sub(r'^```(?:json)?\s*','',text,flags=re.I); text=re.sub(r'\s*```$','',text)
+    data=json.loads(text)
+    if not isinstance(data,dict): raise ValueError('AI did not return an object')
     return data
 
 
 def _normalize(data: Dict[str, Any]) -> Dict[str, Any]:
-    result: List[Dict[str, Any]] = []
-    for order in data.get("orders", []):
-        customer = str(order.get("customer_name", "")).strip()
-        if not customer:
-            continue
-        items: List[Dict[str, Any]] = []
-        for item in order.get("items", []):
-            product = str(item.get("product", "")).strip()
-            raw = str(item.get("raw_text", "")).strip()
-            if not product:
-                continue
-            if any(re.fullmatch(p, product, flags=re.I) for p in NOISE):
-                continue
-            q = item.get("quantity")
-            try:
-                quantity = float(q) if q is not None else None
-            except (TypeError, ValueError):
-                quantity = None
-            if quantity is None or quantity <= 0:
-                continue
-            unit = str(item.get("unit", "PKT")).upper().strip()
-            items.append({"raw_text": raw, "product": product, "quantity": quantity, "unit": unit})
-        if items:
-            result.append({"customer_name": customer, "items": items})
-    return {"orders": result}
+    result=[]
+    for order in data.get('orders',[]):
+        customer=str(order.get('customer_name','')).strip()
+        if not customer: continue
+        items=[]
+        for item in order.get('items',[]):
+            product=str(item.get('product','')).strip()
+            raw=str(item.get('raw_text','')).strip()
+            if not product or any(re.fullmatch(p,product,re.I) for p in NOISE): continue
+            try: q=float(item.get('quantity'))
+            except (TypeError,ValueError): q=None
+            if q is None or q<=0: continue
+            unit=str(item.get('unit','PKT')).upper().strip()
+            if unit not in {'CTN','PKT','KG','PCS'}: unit='PKT'
+            items.append({'raw_text':raw,'product':product,'quantity':q,'unit':unit})
+        if items: result.append({'customer_name':customer,'items':items})
+    return {'orders':result}
 
 
-def _groq_client() -> OpenAI:
-    key = _secret("GROQ_API_KEY")
-    if not key:
-        raise RuntimeError("GROQ_API_KEY is not configured")
-    return OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
+def _groq_client():
+    key=_secret('GROQ_API_KEY')
+    if not key: raise RuntimeError('GROQ_API_KEY is not configured')
+    return OpenAI(api_key=key,base_url='https://api.groq.com/openai/v1')
 
 
-def _openai_client() -> OpenAI:
-    key = _secret("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY is not configured")
+def _openai_client():
+    key=_secret('OPENAI_API_KEY')
+    if not key: raise RuntimeError('OPENAI_API_KEY is not configured')
     return OpenAI(api_key=key)
 
 
-def _groq_text(text: str) -> Dict[str, Any]:
-    client = _groq_client()
-    prompt = "Parse the following WhatsApp order text. Separate EVERY customer/order block. Ignore everything except customer name and product+quantity lines.\n\n" + _clean_text(text)
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}],
-        response_format={"type": "json_object"},
-        temperature=0,
-        max_tokens=12000,
-    )
-    return _normalize(_parse_json(response.choices[0].message.content))
+def _groq_text(text: str):
+    prompt='Parse this WhatsApp order text. Separate EVERY customer. Return only customer names and product+quantity lines. Ignore all chatter/times/UI.\n\n'+_clean_text(text)
+    r=_groq_client().chat.completions.create(model=GROQ_MODEL,messages=[{'role':'system','content':SYSTEM},{'role':'user','content':prompt}],response_format={'type':'json_object'},temperature=0,max_tokens=12000)
+    return _normalize(_parse_json(r.choices[0].message.content))
 
 
-def _groq_image(image_bytes: bytes, mime: str) -> Dict[str, Any]:
-    client = _groq_client()
-    data_url = f"data:{mime};base64," + base64.b64encode(image_bytes).decode("ascii")
-    prompt = '''Read the ENTIRE WhatsApp screenshot visually.
-
-IMPORTANT: this is a multi-customer order sheet. Do NOT produce one combined order.
-
-For every distinct customer/message block visible in the screenshot:
-- identify the customer/sender/order owner
-- collect only the product/order lines belonging to that customer
-- ignore timestamps, Forwarded, Self pick, greetings, addresses, phone numbers, prices, dates, WhatsApp UI and all unrelated chat text
-- never use a clock time as a quantity
-- keep customers separate even when products are identical
-
-Return ALL customer orders in the JSON schema.''' 
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": data_url}},
-            ]},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0,
-        max_tokens=12000,
-    )
-    return _normalize(_parse_json(response.choices[0].message.content))
+def _groq_image(image_bytes: bytes, mime: str):
+    data_url=f'data:{mime};base64,'+base64.b64encode(image_bytes).decode('ascii')
+    prompt='Read the ENTIRE WhatsApp screenshot. Separate EVERY customer/order block. Extract ONLY customer name + product + explicit quantity. Ignore timestamps, Forwarded, Self pick, chat text, UI, addresses, phone numbers, prices and dates. Never merge customers.'
+    r=_groq_client().chat.completions.create(model=GROQ_MODEL,messages=[{'role':'system','content':SYSTEM},{'role':'user','content':[{'type':'text','text':prompt},{'type':'image_url','image_url':{'url':data_url}}]}],response_format={'type':'json_object'},temperature=0,max_tokens=12000)
+    return _normalize(_parse_json(r.choices[0].message.content))
 
 
-def _openai_text(text: str) -> Dict[str, Any]:
-    client = _openai_client()
-    response = client.responses.create(
-        model=OPENAI_MODEL,
-        store=False,
-        instructions=SYSTEM,
-        input=_clean_text(text),
-        text={"format": {"type": "json_schema", "name": "cheese_orders", "schema": SCHEMA, "strict": True}},
-    )
-    return _normalize(_parse_json(response.output_text))
+def _openai_text(text: str):
+    r=_openai_client().responses.create(model=OPENAI_MODEL,store=False,instructions=SYSTEM,input=_clean_text(text),text={'format':{'type':'json_schema','name':'cheese_orders','schema':SCHEMA,'strict':True}})
+    return _normalize(_parse_json(r.output_text))
 
 
-def _openai_image(image_bytes: bytes, mime: str) -> Dict[str, Any]:
-    client = _openai_client()
-    data_url = f"data:{mime};base64," + base64.b64encode(image_bytes).decode("ascii")
-    response = client.responses.create(
-        model=OPENAI_MODEL,
-        store=False,
-        instructions=SYSTEM,
-        input=[{"role": "user", "content": [
-            {"type": "input_text", "text": "Read the entire WhatsApp screenshot and return ALL customer orders separately. Ignore every non-order message and timestamp."},
-            {"type": "input_image", "image_url": data_url, "detail": "high"},
-        ]}],
-        text={"format": {"type": "json_schema", "name": "cheese_orders", "schema": SCHEMA, "strict": True}},
-    )
-    return _normalize(_parse_json(response.output_text))
+def _openai_image(image_bytes: bytes, mime: str):
+    data_url=f'data:{mime};base64,'+base64.b64encode(image_bytes).decode('ascii')
+    r=_openai_client().responses.create(model=OPENAI_MODEL,store=False,instructions=SYSTEM,input=[{'role':'user','content':[{'type':'input_text','text':'Read the entire WhatsApp screenshot. Return ALL customers separately and only product/order lines.'},{'type':'input_image','image_url':data_url,'detail':'high'}]}],text={'format':{'type':'json_schema','name':'cheese_orders','schema':SCHEMA,'strict':True}})
+    return _normalize(_parse_json(r.output_text))
 
 
-def _run(primary, secondary, fallback_text="") -> Dict[str, Any]:
+def _ocr_image(image_bytes: bytes) -> str:
     try:
-        return primary()
-    except (RateLimitError, APIError, APITimeoutError, APIConnectionError, RuntimeError, ValueError, json.JSONDecodeError):
+        image=Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        w,h=image.size
+        if max(w,h)<4000:
+            scale=4000/max(w,h); image=image.resize((int(w*scale),int(h*scale)),Image.Resampling.LANCZOS)
+        gray=ImageOps.grayscale(image); gray=ImageOps.autocontrast(gray); gray=gray.filter(ImageFilter.SHARPEN)
+        return pytesseract.image_to_string(gray,config='--psm 6').strip()
+    except Exception:
+        return ''
+
+
+def _ocr_candidates(ocr: str) -> str:
+    cleaned=_clean_text(ocr); kept=[]
+    for line in cleaned.splitlines():
+        t=line.strip()
+        if not t: continue
+        if re.search(r'(forwarded|self pick)',t,re.I) and not PRODUCT_HINTS.search(t): continue
+        if re.fullmatch(r'\d{1,2}:\d{2}.*',t,re.I): continue
+        # Keep likely product lines and short no-digit headings as customer candidates.
+        if PRODUCT_HINTS.search(t) or re.search(r'\b(?:ctn|carton|cartons|box|boxes|pkt|packet|pcs|pc|blk|block|kg)\b',t,re.I):
+            kept.append(t)
+        elif not re.search(r'\d',t) and len(t.split())<=8:
+            kept.append(t)
+    out=[]; seen=set()
+    for x in kept:
+        k=x.casefold()
+        if k not in seen: seen.add(k); out.append(x)
+    return '\n'.join(out)
+
+
+def parse_orders_text(text: str):
+    try: return _groq_text(text)
+    except (RateLimitError,APIError,APITimeoutError,APIConnectionError,RuntimeError,ValueError,json.JSONDecodeError):
+        try: return _openai_text(text)
+        except Exception as exc: return {'orders':[],'_fallback':True,'_fallback_text':text,'_fallback_reason':type(exc).__name__}
+
+
+def parse_orders_image(image_bytes: bytes,mime: str='image/png'):
+    # Primary: Groq vision.
+    try:
+        r=_groq_image(image_bytes,mime)
+        if r.get('orders'): return r
+    except Exception:
+        pass
+    # Reliable fallback: local OCR -> cleaned candidate text -> Groq text.
+    ocr=_ocr_image(image_bytes); candidates=_ocr_candidates(ocr)
+    if candidates:
         try:
-            return secondary()
-        except Exception as exc:
-            return {"orders": [], "_fallback": True, "_fallback_text": fallback_text, "_fallback_reason": type(exc).__name__}
+            r=_groq_text(candidates)
+            if r.get('orders'): return r
+        except Exception:
+            pass
+        # Then OpenAI text, only if available.
+        try:
+            r=_openai_text(candidates)
+            if r.get('orders'): return r
+        except Exception:
+            pass
+    # Last resort: OpenAI vision.
+    try:
+        r=_openai_image(image_bytes,mime)
+        if r.get('orders'): return r
+    except Exception:
+        pass
+    return {'orders':[],'_fallback':True,'_fallback_text':candidates or ocr,'_fallback_reason':'no_readable_order_detected'}
 
 
-def parse_orders_text(text: str) -> Dict[str, Any]:
-    return _run(lambda: _groq_text(text), lambda: _openai_text(text), text)
-
-
-def parse_orders_image(image_bytes: bytes, mime: str = "image/png") -> Dict[str, Any]:
-    return _run(lambda: _groq_image(image_bytes, mime), lambda: _openai_image(image_bytes, mime), "")
-
-
-def orders_to_parser_groups(result: Dict[str, Any]) -> List[Dict[str, str]]:
-    if result.get("_fallback"):
-        return [{"customer_name": "", "parser_text": str(result.get("_fallback_text", ""))}]
-    groups = []
-    for order in result.get("orders", []):
-        name = str(order.get("customer_name", "")).strip()
-        lines = [name]
-        for item in order.get("items", []):
-            q = item.get("quantity")
-            unit = item.get("unit", "PKT")
-            product = item.get("product", "")
-            if product and q not in (None, ""):
-                q_text = str(int(q)) if float(q).is_integer() else str(q)
-                lines.append(f"{q_text} {unit} {product}")
-        if len(lines) > 1:
-            groups.append({"customer_name": name, "parser_text": "\n".join(lines)})
+def orders_to_parser_groups(result: Dict[str,Any])->List[Dict[str,str]]:
+    groups=[]
+    for order in result.get('orders',[]):
+        name=str(order.get('customer_name','')).strip(); lines=[name]
+        for item in order.get('items',[]):
+            q=float(item.get('quantity')); qtxt=str(int(q)) if q.is_integer() else str(q)
+            product=item.get('product',''); unit=item.get('unit','PKT')
+            if product: lines.append(f'{qtxt} {unit} {product}')
+        if len(lines)>1: groups.append({'customer_name':name,'parser_text':'\n'.join(lines)})
     return groups
 
 
-def ai_parse_order_text(text: str) -> Dict[str, Any]:
-    result = parse_orders_text(text)
-    first = result.get("orders", [{}])[0] if result.get("orders") else {}
-    return {"customer_name": first.get("customer_name", ""), "items": first.get("items", []), **result}
+def ai_parse_order_text(text: str):
+    r=parse_orders_text(text); first=r.get('orders',[{}])[0] if r.get('orders') else {}
+    return {'customer_name':first.get('customer_name',''),'items':first.get('items',[]),**r}
 
 
-def ai_parse_order_image(image_bytes: bytes) -> Dict[str, Any]:
-    result = parse_orders_image(image_bytes)
-    first = result.get("orders", [{}])[0] if result.get("orders") else {}
-    return {"customer_name": first.get("customer_name", ""), "items": first.get("items", []), **result}
+def ai_parse_order_image(image_bytes: bytes):
+    r=parse_orders_image(image_bytes); first=r.get('orders',[{}])[0] if r.get('orders') else {}
+    return {'customer_name':first.get('customer_name',''),'items':first.get('items',[]),**r}
 
 
-def ai_to_parser_text(result: Dict[str, Any]) -> str:
-    groups = orders_to_parser_groups(result)
-    return "\n\n".join(g["parser_text"] for g in groups)
+def ai_to_parser_text(result: Dict[str,Any])->str:
+    return '\n\n'.join(g['parser_text'] for g in orders_to_parser_groups(result))
