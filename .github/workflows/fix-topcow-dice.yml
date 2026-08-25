@@ -1,0 +1,30 @@
+name: Fix Top Cow Dice mapping
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch exact mapping
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app.py')
+          s=p.read_text(encoding='utf-8')
+          old='''    if "top cow" in t and "yellow" in t:return "FG-02-0049"\n    if "top cow" in t and "white" in t:return "FG-02-0048"'''
+          new='''    if "top cow" in t and "yellow" in t:return "FG-02-0049"\n    if "top cow" in t and ("white" in t or "dice" in t or "shred" in t):return "FG-02-0048"'''
+          if old not in s: raise SystemExit('Top Cow mapping pattern not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Commit and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fix-topcow-dice.yml
+          git add app.py
+          git commit -m "Map plain Top Cow Dice to FG-02-0048 [skip ci]"
+          git push
