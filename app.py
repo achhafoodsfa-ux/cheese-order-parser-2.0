@@ -93,11 +93,88 @@ PRODUCTS = {
 "FG-02-0182":{"name":"Allana Pizza Cheese 50/50 White W.Poly","pack":"regular","pcs_ctn":5,"kg":2,"keywords":["allana wpoly 50/50"]},
 }
 
+# ============================================================
+# AUGUST-18 ITEM MASTER EXTENSIONS
+# These are explicit W.Poly/WP and newly locked mappings.
+# WP items are used ONLY when the order explicitly contains WP/W.P/W.Poly.
+# ============================================================
+PRODUCTS.update({
+    "FG-02-0040": {"name":"Silver Cheddar Block", "pack":"block", "pcs_ctn":10, "kg":2, "keywords":["silver cheddar block","silver chadder block"]},
+    "FG-02-0067": {"name":"Silver Cheddar Shred", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["silver cheddar shred","silver cheddar shredded","silver chadder shred"]},
+    "FG-02-0080": {"name":"New Silver Cheddar Block", "pack":"block", "pcs_ctn":10, "kg":2, "keywords":["new silver cheddar block","new silver chadder block","new silver chadder blk"]},
+
+    # Achha W.Poly
+    "FG-01-0123": {"name":"Achha Mozzarella Block W.Poly 2kg", "pack":"block", "pcs_ctn":10, "kg":2, "keywords":["achha mozz block wp","achha mozzarella block wp"]},
+    "FG-01-0119": {"name":"Achha Mozzarella Shredded White W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["achha mozz shred wp","achha mozzarella shredded wp"]},
+    "FG-01-0120": {"name":"Latina Mozzarella Shredded WP 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["latina shred wp","latina mozzarella shred wp"]},
+    "FG-01-0121": {"name":"Local 70/30 Mozzarella/Cheddar Shredded WP 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["local 70/30 wp","local 70/30 mozzarella cheddar wp"]},
+    "FG-01-0122": {"name":"Verona Mozzarella Shredded WP 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["verona shred wp","verona mozzarella shred wp"]},
+    "FG-01-0126": {"name":"Imported/UK Mozzarella Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["uk shred wp","imported uk shred wp"]},
+
+    # Top Cow W.Poly — Shred and Dice are the same SKU
+    "FG-02-0076": {"name":"Top Cow White Mozzarella Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["top cow white dice wp","top cow white shred wp","top cow white shredded wp"]},
+    "FG-02-0077": {"name":"Top Cow Yellow Mozzarella Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["top cow yellow dice wp","top cow yellow shred wp","top cow yellow shredded wp"]},
+    "FG-02-0079": {"name":"Top Cow Premium White Mozzarella Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["top cow premium white dice wp","top cow premium white shred wp"]},
+
+    # Nivora W.Poly 2kg variants
+    "FG-02-0126": {"name":"Nivora Max White Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0125": {"name":"Nivora Max White Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0128": {"name":"Nivora Max Yellow Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0127": {"name":"Nivora Max Yellow Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0093": {"name":"Nivora MF White Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0092": {"name":"Nivora MF White Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0091": {"name":"Nivora MF Yellow Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0090": {"name":"Nivora MF Yellow Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0122": {"name":"Nivora Pro White Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0121": {"name":"Nivora Pro White Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0124": {"name":"Nivora Pro Yellow Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0123": {"name":"Nivora Pro Yellow Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0134": {"name":"Nivora PT White Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0133": {"name":"Nivora PT White Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0136": {"name":"Nivora PT Yellow Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0135": {"name":"Nivora PT Yellow Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0130": {"name":"Nivora VF White Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0129": {"name":"Nivora VF White Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0132": {"name":"Nivora VF Yellow Dice W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+    "FG-02-0131": {"name":"Nivora VF Yellow Shredded W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":[]},
+
+    # Allana W.Poly
+    "FG-02-0160": {"name":"Allana Cheddar Cheese Block W.Poly 2kg", "pack":"block", "pcs_ctn":10, "kg":2, "keywords":["allana cheddar block wp"]},
+    "FG-02-0214": {"name":"Allana Cheddar Cheese Slice White W.Poly 800gm", "pack":"slice800", "pcs_ctn":18, "kg":0.8, "keywords":["allana white slice wp 800"]},
+    "FG-02-0215": {"name":"Allana Cheddar Cheese Slice Yellow W.Poly 800gm", "pack":"slice800", "pcs_ctn":18, "kg":0.8, "keywords":["allana yellow slice wp 800"]},
+    "FG-02-0159": {"name":"Allana Gold Cheddar Cheese Block W.Poly 2kg", "pack":"block", "pcs_ctn":10, "kg":2, "keywords":["allana gold cheddar block wp"]},
+    "FG-02-0161": {"name":"Allana Gold Mozzarella Cheese Block W.Poly 2kg", "pack":"block", "pcs_ctn":10, "kg":2, "keywords":["allana gold mozzarella block wp"]},
+    "FG-02-0167": {"name":"Allana Gold Mozzarella Cheese Dice White W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold mozz white dice wp"]},
+    "FG-02-0169": {"name":"Allana Gold Mozzarella Cheese Dice Yellow W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold mozz yellow dice wp"]},
+    "FG-02-0163": {"name":"Allana Gold Mozzarella Cheese Shredded White W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold mozz white shred wp"]},
+    "FG-02-0165": {"name":"Allana Gold Mozzarella Cheese Shredded Yellow W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold mozz yellow shred wp"]},
+    "FG-02-0177": {"name":"Allana Gold Pizza Cheese Dice 70/30 White W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold pizza dice 70/30 white wp"]},
+    "FG-02-0179": {"name":"Allana Gold Pizza Cheese Dice 70/30 Yellow W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold pizza dice 70/30 yellow wp"]},
+    "FG-02-0181": {"name":"Allana Gold Pizza Cheese Shredded 50/50 White W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold pizza shred 50/50 white wp"]},
+    "FG-02-0183": {"name":"Allana Gold Pizza Cheese Shredded 50/50 Yellow W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold pizza shred 50/50 yellow wp"]},
+    "FG-02-0173": {"name":"Allana Gold Pizza Cheese Shredded 70/30 White W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold pizza shred 70/30 white wp"]},
+    "FG-02-0175": {"name":"Allana Gold Pizza Cheese Shredded 70/30 Yellow W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana gold pizza shred 70/30 yellow wp"]},
+    "FG-02-0171": {"name":"Allana Gold Pizza Topping Block W.Poly 2kg", "pack":"block", "pcs_ctn":10, "kg":2, "keywords":["allana gold pizza topping block wp"]},
+    "FG-02-0168": {"name":"Allana Mozzarella Cheese Dice White W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana mozz white dice wp"]},
+    "FG-02-0170": {"name":"Allana Mozzarella Cheese Dice Yellow W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana mozz yellow dice wp"]},
+    "FG-02-0178": {"name":"Allana Pizza Cheese Dice 70/30 White W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana pizza dice 70/30 white wp"]},
+    "FG-02-0180": {"name":"Allana Pizza Cheese Dice 70/30 Yellow W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana pizza dice 70/30 yellow wp"]},
+    "FG-02-0184": {"name":"Allana Pizza Cheese Shredded 50/50 Yellow W.Poly 2kg", "pack":"regular", "pcs_ctn":5, "kg":2, "keywords":["allana pizza shred 50/50 yellow wp"]},
+    "FG-02-0172": {"name":"Allana Pizza Topping Block W.Poly 2kg", "pack":"block", "pcs_ctn":10, "kg":2, "keywords":["allana pizza topping block wp"]},
+})
+
 RULES_FILE = Path("rules.json")
 
 def norm(s):
     s=str(s).lower().strip()
-    replacements={"shared":"shred","shraded":"shredded","shrad":"shred","shrd":"shred","shreded":"shredded","chadder":"cheddar","chaddar":"cheddar","cheder":"cheddar","cheedar":"cheddar","chesse":"cheese","accha":"achha","acha":"achha","locl":"local","lockl":"local","70.30":"70/30"}
+    replacements={
+        "shared":"shred","shraded":"shredded","shrad":"shred","shrd":"shred","shreded":"shredded",
+        "chadder":"cheddar","chaddar":"cheddar","cheder":"cheddar","cheedar":"cheddar","chesse":"cheese",
+        "accha":"achha","acha":"achha","locl":"local","lockl":"local","70.30":"70/30","70:30":"70/30",
+        "mozzrela":"mozzarella","mozzarela":"mozzarella","mozralla":"mozzarella","blk":"block",
+        "coton":"ctn","cotton":"ctn","cartons":"ctn","carton":"ctn",
+        "packets":"pkt","packet":"pkt","pac":"pkt","pcs":"pkt"
+    }
     for a,b in replacements.items(): s=s.replace(a,b)
     return re.sub(r"\s+"," ",s)
 
@@ -123,34 +200,184 @@ def apply_saved_aliases(text):
     return None
 
 def find_product(text):
-    # Customer identifiers/codes are intentionally ignored. This function maps product text only.
+    """
+    Deterministic product mapper.
+    IMPORTANT:
+    - WP/W.P/W.Poly codes are used ONLY when WP is explicitly written.
+    - Without explicit WP, regular/non-WP mapping is used.
+    - Specific identifiers (Danish, New Silver, Silver Cheddar, Pizza Topping, etc.)
+      always override generic defaults.
+    """
     t=norm(text)
     saved=apply_saved_aliases(t)
     if saved:return saved
-    # Explicit authoritative mappings from master training.
+
+    # Explicit WP/W.Poly detector. Do NOT infer WP.
+    wp = bool(re.search(r"(?:\bwp\b|w\.\s*p\.?\b|\bw[\s-]?poly\b|\bw/p\b)", t, re.I))
+
+    # ---------- BUTTER: SALTED = YELLOW, UNSALTED = WHITE ----------
+    if "butter" in t:
+        salted = bool(re.search(r"\bsalted\b", t))
+        unsalted = bool(re.search(r"\bunsalted\b", t))
+        has_yellow = "yellow" in t
+        has_white = "white" in t
+        if salted and has_white and not has_yellow:
+            return None  # explicit conflict => review
+        if unsalted and has_yellow and not has_white:
+            return None  # explicit conflict => review
+        yellow = salted or has_yellow
+        white = unsalted or has_white
+        fat87 = "87" in t
+        gm500 = "500" in t or "0.5" in t
+        if yellow:
+            if fat87:return "FG-06-0018"
+            if gm500:return "FG-06-0010"
+            return "FG-06-0011"
+        if white:
+            if fat87:return "FG-06-0017"
+            if gm500:return "FG-06-0003"
+            return "FG-06-0004"
+        return None  # no safe salted/unsalted/color signal
+
+    # ---------- EXPLICIT WP MAPPINGS ----------
+    if wp:
+        # Top Cow: Shred and Dice are the SAME SKU.
+        if "top cow" in t:
+            if "premium" in t and "white" in t:
+                return "FG-02-0079"
+            if "yellow" in t:
+                return "FG-02-0077"
+            if "white" in t or "dice" in t or "shred" in t:
+                return "FG-02-0076"
+
+        if "new silver" in t and "cheddar" in t and "block" in t:
+            return "FG-02-0080"
+        if "silver" in t and "cheddar" in t and "shred" in t:
+            return "FG-02-0067"
+        if "silver" in t and "cheddar" in t and "block" in t:
+            return "FG-02-0040"
+
+        if "achha" in t and "block" in t and "mozz" in t:
+            return "FG-01-0123"
+        if "achha" in t and "shred" in t and ("mozz" in t or "achha" in t):
+            return "FG-01-0119"
+
+        # Allana WP / W.Poly — specific qualifiers first.
+        if "allana" in t:
+            if "gold" in t and "cheddar" in t and "block" in t:return "FG-02-0159"
+            if "gold" in t and "mozz" in t and "block" in t:return "FG-02-0161"
+            if "gold" in t and "mozz" in t and "dice" in t and "yellow" in t:return "FG-02-0169"
+            if "gold" in t and "mozz" in t and "dice" in t:return "FG-02-0167"
+            if "gold" in t and "mozz" in t and "shred" in t and "yellow" in t:return "FG-02-0165"
+            if "gold" in t and "mozz" in t and "shred" in t:return "FG-02-0163"
+            if "gold" in t and "pizza" in t and "70/30" in t and "dice" in t and "yellow" in t:return "FG-02-0179"
+            if "gold" in t and "pizza" in t and "70/30" in t and "dice" in t:return "FG-02-0177"
+            if "gold" in t and "pizza" in t and "50/50" in t and "yellow" in t:return "FG-02-0183"
+            if "gold" in t and "pizza" in t and "50/50" in t and "white" in t:return "FG-02-0181"
+            if "gold" in t and "pizza" in t and "70/30" in t and "yellow" in t:return "FG-02-0175"
+            if "gold" in t and "pizza" in t and "70/30" in t:return "FG-02-0173"
+            if "gold" in t and "pizza topping" in t and "block" in t:return "FG-02-0171"
+            if "cheddar" in t and "slice" in t and "white" in t:return "FG-02-0214"
+            if "cheddar" in t and "slice" in t and "yellow" in t:return "FG-02-0215"
+            if "cheddar" in t and "block" in t:return "FG-02-0160"
+            if "pizza topping" in t and "block" in t:return "FG-02-0172"
+            if "pizza" in t and "70/30" in t and "dice" in t and "yellow" in t:return "FG-02-0180"
+            if "pizza" in t and "70/30" in t and "dice" in t:return "FG-02-0178"
+            if "pizza" in t and "70/30" in t and "shred" in t and "yellow" in t:return "FG-02-0176"
+            if "pizza" in t and "70/30" in t and "shred" in t:return "FG-02-0174"
+            if "pizza" in t and "50/50" in t and "yellow" in t:return "FG-02-0184"
+            if "pizza" in t and "50/50" in t and "white" in t:return "FG-02-0182"
+            if "mozz" in t and "dice" in t and "yellow" in t:return "FG-02-0170"
+            if "mozz" in t and "dice" in t:return "FG-02-0168"
+            if "mozz" in t and "shred" in t and "yellow" in t:return "FG-02-0166"
+            if "mozz" in t and "shred" in t:return "FG-02-0164"
+            if "mozz" in t and "block" in t:return "FG-02-0162"
+
+        # Nivora WP: weight + family + color + form are mandatory when both weights exist.
+        nivora_families = [("mf","009"),("pro","012"),("max","012"),("pt","013"),("vf","013")]
+        weight25 = bool(re.search(r"\b2\.5\s*kg\b|\b2\.5kg\b", t))
+        weight2 = bool(re.search(r"\b2\s*kg\b|\b2kg\b", t))
+        color = "yellow" if "yellow" in t else "white" if "white" in t else None
+        form = "dice" if "dice" in t else "shred" if "shred" in t else None
+        if any(f" {fam} " in f" {t} " for fam,_ in nivora_families):
+            fam = next(fam for fam,_ in nivora_families if re.search(rf"\b{fam}\b", t))
+            table={
+                ("mf","white","dice",2):"FG-02-0093",("mf","white","shred",2):"FG-02-0092",
+                ("mf","yellow","dice",2):"FG-02-0091",("mf","yellow","shred",2):"FG-02-0090",
+                ("pro","white","dice",2):"FG-02-0122",("pro","white","shred",2):"FG-02-0121",
+                ("pro","yellow","dice",2):"FG-02-0124",("pro","yellow","shred",2):"FG-02-0123",
+                ("max","white","dice",2):"FG-02-0126",("max","white","shred",2):"FG-02-0125",
+                ("max","yellow","dice",2):"FG-02-0128",("max","yellow","shred",2):"FG-02-0127",
+                ("pt","white","dice",2):"FG-02-0134",("pt","white","shred",2):"FG-02-0133",
+                ("pt","yellow","dice",2):"FG-02-0136",("pt","yellow","shred",2):"FG-02-0135",
+                ("vf","white","dice",2):"FG-02-0130",("vf","white","shred",2):"FG-02-0129",
+                ("vf","yellow","dice",2):"FG-02-0132",("vf","yellow","shred",2):"FG-02-0131",
+            }
+            table25={
+                ("mf","white","dice",2.5):"FG-02-0102",("mf","white","shred",2.5):"FG-02-0101",
+                ("mf","yellow","dice",2.5):"FG-02-0104",("mf","yellow","shred",2.5):"FG-02-0103",
+                ("pro","white","dice",2.5):"FG-02-0106",("pro","white","shred",2.5):"FG-02-0105",
+                ("pro","yellow","dice",2.5):"FG-02-0108",("pro","yellow","shred",2.5):"FG-02-0107",
+                ("max","white","dice",2.5):"FG-02-0110",("max","white","shred",2.5):"FG-02-0109",
+                ("max","yellow","dice",2.5):"FG-02-0112",("max","yellow","shred",2.5):"FG-02-0111",
+                ("pt","white","dice",2.5):"FG-02-0118",("pt","white","shred",2.5):"FG-02-0117",
+                ("pt","yellow","dice",2.5):"FG-02-0120",("pt","yellow","shred",2.5):"FG-02-0119",
+                ("vf","white","dice",2.5):"FG-02-0114",("vf","white","shred",2.5):"FG-02-0113",
+                ("vf","yellow","dice",2.5):"FG-02-0116",("vf","yellow","shred",2.5):"FG-02-0115",
+            }
+            key=(fam,color,form)
+            if weight25 and key in table25:return table25[key]
+            if weight2 and key in table:return table[key]
+            if not weight2 and not weight25:return None  # ambiguous => review
+
+        # Other explicit WP regulars.
+        if "latina" in t and "shred" in t:return "FG-01-0120"
+        if "local" in t and "70/30" in t and "shred" in t:return "FG-01-0121"
+        if "verona" in t and "shred" in t:return "FG-01-0122"
+        if ("imported" in t or "uk" in t) and "shred" in t:return "FG-01-0126"
+
+    # ---------- NON-WP / REGULAR MAPPINGS ----------
+    if "new silver" in t and "cheddar" in t and "block" in t:return "FG-02-0080"
+    if "silver" in t and "cheddar" in t and "shred" in t:return "FG-02-0067"
+    if "silver" in t and "cheddar" in t and "block" in t:return "FG-02-0040"
+
     if "50/50" in t and ("shred" in t or "shredded" in t):return "FG-03-0024"
     if "classic" in t and ("shred" in t or "shredded" in t) and "70/30" not in t:return "FG-02-0036"
-    priority=[("red mozz blk","FG-01-0006"),("red mozzarella block","FG-01-0006"),("blue shredd","FG-01-0042"),("blue shred","FG-01-0042"),("danish mozzarella block","FG-01-0018"),("danish mozz block","FG-01-0018"),("classic mozzarella block","FG-01-0012"),("classic mozz block","FG-01-0012"),("burger slice","FG-02-0028"),("orange slice","FG-02-0028")]
+
+    priority=[
+        ("red mozz blk","FG-01-0006"),("red mozzarella block","FG-01-0006"),
+        ("blue shredd","FG-01-0042"),("blue shred","FG-01-0042"),
+        ("danish mozzarella block","FG-01-0018"),("danish mozz block","FG-01-0018"),
+        ("classic mozzarella block","FG-01-0012"),("classic mozz block","FG-01-0012"),
+        ("burger slice","FG-02-0028"),("orange slice","FG-02-0028")
+    ]
     for key,code in priority:
         if key in t:return code
+
+    # Slice selection: explicit 800gm wins; otherwise 1kg.
     if "slice" in t:
-        white="white" in t; yellow=any(x in t for x in ("yellow","orange","burger")); jal="jalapeno" in t or "jal" in t; is800=any(x in t for x in ("800","800gm","800 gm",".8","0.8"))
+        white="white" in t; yellow=any(x in t for x in ("yellow","orange","burger")); jal="jalapeno" in t or "jal" in t
+        is800=any(x in t for x in ("800","800gm","800 gm",".8","0.8"))
         if jal:return "FG-02-0039"
         if white:return "FG-02-0037" if is800 else "FG-02-0023"
         if yellow:return "FG-02-0038" if is800 else "FG-02-0028"
-    if "burger" in t and "2 kg" in t:return "FG-02-0028"
+
     if "local" in t and "70/30" in t:return "FG-03-0018"
     if ("new" in t or "m3" in t) and "70/30" in t:return "FG-02-0051"
     if "imp" in t and "70/30" in t:return "FG-03-0006"
     if "classic" in t and "70/30" in t:return "FG-02-0072"
+
     if "achha" in t and "yellow" in t and "dice" in t:return "FG-01-0125"
     if "achha" in t and "white" in t and "dice" in t:return "FG-01-0124"
     if "achha" in t and "yellow" in t and "shred" in t:return "FG-01-0054"
     if "achha" in t and "shred" in t:return "FG-01-0042"
-    if "top cow" in t and "yellow" in t:return "FG-02-0049"
+
+    # Top Cow REGULAR: shred and dice are the SAME SKU.
+    if "top cow" in t and "yellow" in t and ("dice" in t or "shred" in t):return "FG-02-0049"
     if "top cow" in t and ("white" in t or "dice" in t or "shred" in t):return "FG-02-0048"
     if "top cow" in t and "cheddar" in t and "block" in t:return "FG-02-0068"
     if "top cow" in t and "block" in t:return "FG-02-0060"
+
     if "verona" in t and "block" in t:return "FG-03-0025"
     if "verona" in t:return "FG-01-0072"
     if "silver" in t and "shred" in t:return "FG-01-0110"
@@ -158,11 +385,25 @@ def find_product(text):
     if "danish" in t and "shred" in t:return "FG-01-0030"
     if "danish" in t:return "FG-01-0018"
     if "classic" in t and "cheddar" in t and "block" in t:return "FG-02-0012"
+    if "pizza topping" in t and "block" in t:return "FG-02-0065"
+    if "pizza topping" in t and "shred" in t:return "FG-02-0064"
     if "pizza cheddar" in t or ("pizza" in t and "cheddar" in t and "block" in t):return "FG-02-0006"
-    for key,code in [("mf white","FG-02-0102"),("mf yellow","FG-02-0104"),("pro white","FG-02-0106"),("pro w","FG-02-0106"),("pro yellow","FG-02-0108"),("max white","FG-02-0110"),("max yellow","FG-02-0112"),("pt white","FG-02-0118"),("pt w","FG-02-0118"),("pt yellow","FG-02-0120"),("pt y","FG-02-0120"),("vf white","FG-02-0114"),("vf yellow","FG-02-0116")]:
+
+    for key,code in [
+        ("mf white dice","FG-02-0102"),("mf white","FG-02-0102"),
+        ("mf yellow dice","FG-02-0104"),("mf yellow","FG-02-0104"),
+        ("pro white","FG-02-0106"),("pro w","FG-02-0106"),
+        ("pro yellow","FG-02-0108"),
+        ("max white","FG-02-0110"),("max yellow","FG-02-0112"),
+        ("pt white","FG-02-0118"),("pt w","FG-02-0118"),
+        ("pt yellow","FG-02-0120"),("pt y","FG-02-0120"),
+        ("vf white","FG-02-0114"),("vf yellow","FG-02-0116")
+    ]:
         if key in t:return code
+
     if "mozzarella block" in t or "mozz block" in t or "mozz blk" in t:return "FG-01-0006"
-    candidates=[(len(k),code) for code,p in PRODUCTS.items() for k in p["keywords"] if k in t]
+
+    candidates=[(len(k),code) for code,p in PRODUCTS.items() for k in p["keywords"] if k and k in t and not (wp and "w.p" not in p["name"].lower() and "wp" not in p["name"].lower())]
     return sorted(candidates,reverse=True)[0][1] if candidates else None
 
 def parse_quantity(line):
@@ -328,6 +569,10 @@ with st.sidebar:
     st.write("• Red mozz blk = Achha Mozz Block")
     st.write("• Blue shredd = Achha Mozz Shredded")
     st.write("• Danish Mozz Block = Danish, never Achha")
+    st.write("• Salted Butter = Yellow; Unsalted Butter = White")
+    st.write("• WP code ONLY when WP/W.P/W.Poly is explicitly written")
+    st.write("• Top Cow White Shred = Top Cow White Dice (same SKU)")
+    st.write("• Top Cow Yellow Shred = Top Cow Yellow Dice (same SKU)")
     st.write("• 50/50 Shredded = Imported 50/50 Shredded 2kg")
     st.write("• Classic Shredded = FG-02-0036")
 
