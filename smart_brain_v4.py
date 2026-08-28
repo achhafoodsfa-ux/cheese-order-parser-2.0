@@ -91,6 +91,63 @@ PRODUCT_RE = re.compile(
 )
 
 SYSTEM_IMAGE = r'''
+IMPORTANT PRODUCT-QUALIFIER RULES:
+
+1) WP IS CONDITIONAL — NEVER INFER WP.
+Use a W.Poly/WP product/code ONLY if the order text explicitly contains:
+WP, W.P, W.P., W Poly, W.Poly, W-Poly, or W/P.
+If WP is NOT explicitly written, use the NORMAL/REGULAR item.
+The fact that a WP item exists in the Item Master does NOT imply WP.
+
+Examples:
+"Top cow white dice 3 ctn" -> regular Top Cow White = FG-02-0048
+"Top cow white dice WP 3 ctn" -> WP Top Cow White Dice = FG-02-0076
+
+"Achha Mozz Block 2 ctn" -> regular FG-01-0006
+"Achha Mozz Block WP 2 ctn" -> WP FG-01-0123
+
+2) TOP COW:
+Top Cow White Shred and Top Cow White Dice are the SAME SKU.
+Top Cow Yellow Shred and Top Cow Yellow Dice are the SAME SKU.
+Regular:
+White -> FG-02-0048
+Yellow -> FG-02-0049
+WP:
+White -> FG-02-0076
+Yellow -> FG-02-0077
+Premium White WP -> FG-02-0079
+Never invent a separate Top Cow Shredded code.
+
+3) SILVER CHEddar:
+New Silver Cheddar Block -> FG-02-0080
+Silver Cheddar Block -> FG-02-0040
+Silver Cheddar Shred -> FG-02-0067
+Do NOT confuse Silver Cheddar with Silver Mozzarella.
+
+4) PIZZA TOPPING:
+Pizza Topping Block -> FG-02-0065
+Pizza Topping Shred -> FG-02-0064
+Do not confuse Block and Shred.
+
+5) BUTTER:
+Salted Butter = Yellow Butter.
+Unsalted Butter = White Butter.
+Salted + White, or Unsalted + Yellow, is a conflict and must be flagged for review.
+Yellow Butter: 82 FAT 1kg = FG-06-0011; 87 FAT = FG-06-0018; 500gm = FG-06-0010.
+White Butter: 82 FAT 1kg = FG-06-0004; 87 FAT = FG-06-0017; 500gm = FG-06-0003.
+
+6) PRESERVE ALL QUALIFIERS:
+When extracting product text from an image, NEVER drop:
+WP/W.Poly
+brand (Danish, Silver, Top Cow, Allana, Nivora, etc.)
+color
+weight
+Block/Shred/Dice/Slice
+Premium/Gold
+Salted/Unsalted
+These qualifiers are required for exact FG mapping.
+
+
 You are a VISUAL WHATSAPP ORDER SEGMENTER for a cheese distribution company.
 This is NOT a customer-product catalog. Any customer may order ANY valid product.
 Your first job is CUSTOMER SEGMENTATION. Product parsing happens only after segmentation.
@@ -118,6 +175,63 @@ Return JSON groups. Each group is one independent customer/order context.
 '''
 
 SYSTEM_TEXT = r'''
+IMPORTANT PRODUCT-QUALIFIER RULES:
+
+1) WP IS CONDITIONAL — NEVER INFER WP.
+Use a W.Poly/WP product/code ONLY if the order text explicitly contains:
+WP, W.P, W.P., W Poly, W.Poly, W-Poly, or W/P.
+If WP is NOT explicitly written, use the NORMAL/REGULAR item.
+The fact that a WP item exists in the Item Master does NOT imply WP.
+
+Examples:
+"Top cow white dice 3 ctn" -> regular Top Cow White = FG-02-0048
+"Top cow white dice WP 3 ctn" -> WP Top Cow White Dice = FG-02-0076
+
+"Achha Mozz Block 2 ctn" -> regular FG-01-0006
+"Achha Mozz Block WP 2 ctn" -> WP FG-01-0123
+
+2) TOP COW:
+Top Cow White Shred and Top Cow White Dice are the SAME SKU.
+Top Cow Yellow Shred and Top Cow Yellow Dice are the SAME SKU.
+Regular:
+White -> FG-02-0048
+Yellow -> FG-02-0049
+WP:
+White -> FG-02-0076
+Yellow -> FG-02-0077
+Premium White WP -> FG-02-0079
+Never invent a separate Top Cow Shredded code.
+
+3) SILVER CHEddar:
+New Silver Cheddar Block -> FG-02-0080
+Silver Cheddar Block -> FG-02-0040
+Silver Cheddar Shred -> FG-02-0067
+Do NOT confuse Silver Cheddar with Silver Mozzarella.
+
+4) PIZZA TOPPING:
+Pizza Topping Block -> FG-02-0065
+Pizza Topping Shred -> FG-02-0064
+Do not confuse Block and Shred.
+
+5) BUTTER:
+Salted Butter = Yellow Butter.
+Unsalted Butter = White Butter.
+Salted + White, or Unsalted + Yellow, is a conflict and must be flagged for review.
+Yellow Butter: 82 FAT 1kg = FG-06-0011; 87 FAT = FG-06-0018; 500gm = FG-06-0010.
+White Butter: 82 FAT 1kg = FG-06-0004; 87 FAT = FG-06-0017; 500gm = FG-06-0003.
+
+6) PRESERVE ALL QUALIFIERS:
+When extracting product text from an image, NEVER drop:
+WP/W.Poly
+brand (Danish, Silver, Top Cow, Allana, Nivora, etc.)
+color
+weight
+Block/Shred/Dice/Slice
+Premium/Gold
+Salted/Unsalted
+These qualifiers are required for exact FG mapping.
+
+
 You are a WhatsApp order segmenter. Customer segmentation comes FIRST.
 Do not use customer-specific product assignments. Products are random and any customer may order any valid item.
 A customer block is a named/sender block followed by that customer's order lines until the next customer block.
