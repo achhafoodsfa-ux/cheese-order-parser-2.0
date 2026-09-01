@@ -21,7 +21,7 @@ PRODUCTS = {
 "FG-02-0068":{"name":"Top Cow Cheddar Block","pack":"block","pcs_ctn":10,"kg":2,"keywords":["top cow cheddar block","top cow chadder block"]},
 "FG-02-0006":{"name":"Achha Pizza Cheddar Block","pack":"block","pcs_ctn":10,"kg":2,"keywords":["pizza cheddar","pizza chadder","pizza cheddar block"]},
 "FG-02-0018":{"name":"Regular Cheddar Block","pack":"block","pcs_ctn":10,"kg":2,"keywords":["regular cheddar block"]},
-"FG-02-0028":{"name":"Yellow Slice 1kg","pack":"slice","pcs_ctn":18,"kg":1,"keywords":["yellow slice","orange slice","burger slice","burger/orange"]},
+"FG-02-0028":{"name":"Yellow Slice 1kg","pack":"slice","pcs_ctn":18,"kg":1,"keywords":["yellow slice","orange slice","burger slice","burger/orange","burger cheese","orange cheese"]},
 "FG-02-0023":{"name":"White Slice 1kg","pack":"slice","pcs_ctn":18,"kg":1,"keywords":["white slice"]},
 "FG-02-0039":{"name":"Jalapeno Cheddar Slice 1kg","pack":"slice","pcs_ctn":18,"kg":1,"keywords":["jalapeno slice","jalapeno cheddar slice"]},
 "FG-02-0038":{"name":"Yellow Slice 800gm","pack":"slice800","pcs_ctn":18,"kg":0.8,"keywords":["yellow slice 800","yellow 800"]},
@@ -84,8 +84,8 @@ PRODUCTS = {
 "FG-02-0115":{"name":"Nivora VF Yellow Shredded","pack":"nivora","pcs_ctn":4,"kg":2.5,"keywords":["vf yellow shred"]},
 "FG-02-0094":{"name":"Allana Cheddar Cheese Block","pack":"block","pcs_ctn":10,"kg":2,"keywords":["allana cheddar block"]},
 "FG-02-0096":{"name":"Allana Mozzarella Cheese Block","pack":"block","pcs_ctn":10,"kg":2,"keywords":["allana mozzarella block"]},
-"FG-02-0097":{"name":"Allana Mozzarella Cheese Shredded White","pack":"regular","pcs_ctn":5,"kg":2,"keywords":["allana mozzarella shred white"]},
-"FG-02-0100":{"name":"Allana Pizza Cheese 70/30 Shredded White","pack":"regular","pcs_ctn":5,"kg":2,"keywords":["allana 70/30","allana pizza 70/30"]},
+"FG-02-0097":{"name":"Allana Mozzarella Cheese Shredded White","pack":"regular","pcs_ctn":5,"kg":2,"keywords":["allana mozzarella shred white","allana mozzarella shred","allana shred"]},
+"FG-02-0100":{"name":"Allana Pizza Cheese 70/30 Shredded White","pack":"regular","pcs_ctn":5,"kg":2,"keywords":["allana 70/30","allana pizza 70/30","allana 70/30 shred"]},
 "FG-02-0162":{"name":"Allana Mozzarella Block W.Poly","pack":"block","pcs_ctn":10,"kg":2,"keywords":["allana wpoly mozzarella block"]},
 "FG-02-0164":{"name":"Allana Mozzarella Shredded White W.Poly","pack":"regular","pcs_ctn":5,"kg":2,"keywords":["allana wpoly mozzarella shred white"]},
 "FG-02-0166":{"name":"Allana Mozzarella Shredded Yellow W.Poly","pack":"regular","pcs_ctn":5,"kg":2,"keywords":["allana wpoly mozzarella shred yellow"]},
@@ -342,7 +342,9 @@ def find_product(text):
     if "silver" in t and "cheddar" in t and "block" in t:return "FG-02-0040"
 
     if "50/50" in t and ("shred" in t or "shredded" in t):return "FG-03-0024"
-    if "classic" in t and ("shred" in t or "shredded" in t) and "70/30" not in t:return "FG-02-0036"
+    if "classic" in t and ("shred" in t or "shredded" in t) and "70/30" not in t:
+        if "dc" in t: return "FG-02-0082"
+        return "FG-02-0036"
 
     priority=[
         ("red mozz blk","FG-01-0006"),("red mozzarella block","FG-01-0006"),
@@ -403,20 +405,40 @@ def find_product(text):
 
     if "mozzarella block" in t or "mozz block" in t or "mozz blk" in t:return "FG-01-0006"
 
-    candidates=[(len(k),code) for code,p in PRODUCTS.items() for k in p["keywords"] if k and k in t and not (wp and "w.p" not in p["name"].lower() and "wp" not in p["name"].lower())]
-    return sorted(candidates,reverse=True)[0][1] if candidates else None
+    candidates = []
+    for code, p in PRODUCTS.items():
+        is_wp_product = "w.p" in p["name"].lower() or "wp" in p["name"].lower()
+        if not wp and is_wp_product:
+            continue
+        if wp and not is_wp_product:
+            continue
+        for k in p["keywords"]:
+            if k and all(word in t for word in k.split()):
+                candidates.append((len(k), code))
+    return sorted(candidates, reverse=True)[0][1] if candidates else None
 
 def parse_quantity(line):
     t=norm(line)
     m=re.search(r"(\d+(?:\.\d+)?)\s*kg\s+.*burger\s*(?:/|or)?\s*(?:orange)?\s*slice",t)
     if m:return int(float(m.group(1))),"PKT"
-    m=re.search(r"(\d+(?:\.\d+)?)\s*(ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|units?|kg)?\b",t)
-    if not m:return None,None
-    qty=float(m.group(1)); unit=(m.group(2) or "").lower(); qty=int(qty) if qty.is_integer() else qty
-    if unit in ("ctn","carton","cartons","box","boxes"):return qty,"CTN"
-    if unit in ("pkt","packet","packets","pcs","pc","unit","units"):return qty,"PKT"
-    if unit=="kg":return qty,"KG"
-    return qty,"CTN" if qty>10 else "PKT"
+    
+    masked = re.sub(r'\b(70/30|50/50|82|87|800\s*gm|800|500\s*gm|500)\b', 'XXX', t)
+    
+    matches = re.findall(r"(\d+(?:\.\d+)?)\s*(ctn|carton|cartons|box|boxes|pkt|packet|packets|pcs|pc|units?|kg)\b", masked)
+    if matches:
+        non_weight = [m for m in matches if not (m[1] == 'kg' and m[0] in ('1', '2', '2.5', '1.0', '2.0'))]
+        best_match = non_weight[0] if non_weight else matches[0]
+        qty = float(best_match[0]); unit = best_match[1].lower(); qty = int(qty) if qty.is_integer() else qty
+        if unit in ("ctn","carton","cartons","box","boxes"):return qty,"CTN"
+        if unit in ("pkt","packet","packets","pcs","pc","unit","units"):return qty,"PKT"
+        if unit=="kg":return qty,"KG"
+        
+    m = re.search(r"(?<!\d\.)\b(\d+(?:\.\d+)?)\b", masked)
+    if m:
+        qty=float(m.group(1)); qty=int(qty) if qty.is_integer() else qty
+        return qty,"CTN" if qty>10 else "PKT"
+        
+    return None,None
 
 def is_customer_identifier(line):
     """Return True for standalone customer/BP identifiers; never use these for product mapping."""
