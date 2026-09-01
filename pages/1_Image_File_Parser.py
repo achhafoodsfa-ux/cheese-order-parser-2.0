@@ -1,126 +1,105 @@
-import ast
+"""Screenshot / file only parser page (paste a WhatsApp screenshot or drop a file)."""
+
+from __future__ import annotations
+
 import io
-import json
-import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageOps, ImageFilter
-import pytesseract
-import fitz
-from pypdf import PdfReader
+
+import extractors
+from core import PRODUCTS, load_rules, parse_order
 from streamlit_paste_button import paste_image_button
 
 st.set_page_config(page_title="Cheese Image / File Parser", page_icon="📋", layout="wide")
 
-APP_FILE = Path(__file__).resolve().parent.parent / "app.py"
-
-def load_core_from_app():
-    source = APP_FILE.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    wanted = {"norm", "load_rules", "save_rules", "apply_saved_aliases", "find_product", "parse_quantity", "parse_order", "sap_line", "clean_ocr_text", "ocr_image"}
-    body = []
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            targets = [x.id for x in node.targets if isinstance(x, ast.Name)]
-            if "PRODUCTS" in targets or "RULES_FILE" in targets:
-                body.append(node)
-        elif isinstance(node, ast.FunctionDef) and node.name in wanted:
-            body.append(node)
-    ns = {
-        "io": io, "json": json, "re": re, "Path": Path,
-        "pd": pd, "Image": Image, "ImageOps": ImageOps, "ImageFilter": ImageFilter,
-        "pytesseract": pytesseract, "fitz": fitz, "PdfReader": PdfReader,
-    }
-    exec(compile(ast.Module(body=body, type_ignores=[]), str(APP_FILE), "exec"), ns)
-    ns["RULES"] = ns["load_rules"]()
-    return ns
-
-CORE = load_core_from_app()
-PRODUCTS = CORE["PRODUCTS"]
-find_product = CORE["find_product"]
-parse_order = CORE["parse_order"]
-sap_line = CORE["sap_line"]
-ocr_image = CORE["ocr_image"]
-
-IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"}
+RULES = load_rules()
 
 
-def show_result(customer, rows, source):
-    ok = [r for r in rows if r["Status"] == "OK"]
-    bad = [r for r in rows if r["Status"] != "OK"]
-    if customer:
-        st.markdown(f"### {customer}")
-    st.subheader("SAP Paste Format")
-    merged = {}
-    for row in ok:
-        merged[row["FG Code"]] = merged.get(row["FG Code"], 0) + int(row["SAP Qty (PKT)"])
-    if merged:
-        sap = "\n".join(sap_line(code, qty) for code, qty in merged.items())
-        st.code(sap, language="text")
-        st.download_button("Download SAP Order", sap, file_name="SAP_Order.txt", mime="text/plain", key=f"dl_{abs(hash(source))}")
-    else:
-        st.warning("No mapped order lines found.")
-    if bad:
-        st.error("These lines need manual checking")
-        st.dataframe(pd.DataFrame(bad), use_container_width=True)
-    if ok:
-        st.subheader("Triple-check")
-        st.dataframe(pd.DataFrame(ok)[["Source", "FG Code", "Product", "Input Qty", "Input Unit", "SAP Qty (PKT)"]], use_container_width=True)
+def render(orders, key: str) -> None:
+    if not orders:
+        st.warning("No order lines were detected.")
+        return
+    for position, order in enumerate(orders):
+        st.markdown(f"### 🧾 {order.title}")
+        if order.merged():
+            st.code(order.sap_text(), language="text")
+            st.download_button(
+                "⬇️ Download SAP block",
+                order.sap_text(),
+                file_name=f"{(order.customer or 'order').replace(' ', '_')}_SAP.txt",
+                mime="text/plain",
+                key=f"dl_{key}_{position}",
+            )
+        else:
+            st.warning("Nothing could be mapped safely for this customer.")
+        if order.review_lines:
+            st.error("These lines need a human decision:")
+            st.dataframe(
+                pd.DataFrame([{"Order line": line.source, "Read as": line.quantity_text or "—",
+                               "What to check": line.note} for line in order.review_lines]),
+                width="stretch", hide_index=True,
+            )
+        if order.ok_lines:
+            with st.expander("🔍 Triple-check", expanded=False):
+                st.dataframe(
+                    pd.DataFrame([{"Order line": line.source, "FG Code": line.code, "Product": line.product,
+                                   "Read as": line.quantity_text, "SAP Qty (PKT)": line.sap_units}
+                                  for line in order.ok_lines]),
+                    width="stretch", hide_index=True,
+                )
+        st.divider()
+
 
 st.title("📋 Cheese Order — Image / File Parser")
-st.caption("Product mapping only. Customer codes are ignored by the product matcher.")
+st.caption("Local OCR only (no AI key needed). Customer codes such as CFS-1234 are never matched to a product.")
 
-col1, col2 = st.columns([1, 1])
-with col1:
-    st.subheader("📋 Paste WhatsApp Screenshot")
-    st.write("Copy the screenshot from WhatsApp, then click **Paste Image**.")
-    pasted = paste_image_button("📋 Paste Image from Clipboard", key="paste_image", errors="raise")
+if not extractors.tesseract_available():
+    st.warning("Tesseract OCR is not installed in this environment, so images cannot be read here. "
+               "Use the main page (AI vision) or paste the order as text below.")
 
-with col2:
-    st.subheader("📎 Drag / Drop File")
-    uploaded = st.file_uploader(
-        "Drop image here or browse",
-        type=sorted(IMAGE_EXTS),
-        accept_multiple_files=False,
-        key="image_drop",
-    )
+left, right = st.columns(2)
+with left:
+    st.subheader("📋 Paste a screenshot")
+    pasted = paste_image_button("📋 Paste image from clipboard", key="paste_image")
+with right:
+    st.subheader("📎 Drag & drop an image")
+    uploaded = st.file_uploader("Image file", type=sorted(extractors.IMAGE_EXTS),
+                                accept_multiple_files=False, key="image_drop")
 
 st.divider()
-st.subheader("📝 Or paste WhatsApp text")
-text_input = st.text_area("Order text", height=150, placeholder="Customer Name\n2 CTN 50/50 shredd\n1 CTN Classic shredd")
-process_text = st.button("🚀 Process Text", type="primary")
+st.subheader("📝 Or paste the order as text")
+text_input = st.text_area("Order text", height=160,
+                          placeholder="Customer Name\n2 ctn 50/50 shredd\n1 ctn classic shredd")
+process_text = st.button("🚀 Process text", type="primary")
 
+image_bytes = None
+caption = ""
 if pasted is not None and getattr(pasted, "image_data", None) is not None:
-    image = pasted.image_data
-    st.image(image, caption="Clipboard image", use_container_width=True)
-    buf = io.BytesIO()
-    image.save(buf, format="PNG")
-    extracted = ocr_image(buf.getvalue())
-    with st.expander("🔎 OCR Text", expanded=False):
-        st.text(extracted[:12000])
-    if extracted.strip():
-        customer, rows = parse_order(extracted)
-        show_result(customer, rows, "clipboard")
-    else:
-        st.error("No readable text detected in the pasted image.")
-
+    buffer = io.BytesIO()
+    pasted.image_data.save(buffer, format="PNG")
+    image_bytes, caption = buffer.getvalue(), "Clipboard image"
 elif uploaded is not None:
-    data = uploaded.getvalue()
-    st.image(data, caption=uploaded.name, use_container_width=True)
-    extracted = ocr_image(data)
-    with st.expander("🔎 OCR Text", expanded=False):
+    image_bytes, caption = uploaded.getvalue(), uploaded.name
+
+if image_bytes:
+    st.image(image_bytes, caption=caption, width="stretch")
+    try:
+        extracted = extractors.ocr_image(image_bytes)
+    except Exception as error:  # noqa: BLE001
+        st.error(f"OCR failed: {error}")
+        extracted = ""
+    with st.expander("🔎 OCR text", expanded=False):
         st.text(extracted[:12000])
     if extracted.strip():
-        customer, rows = parse_order(extracted)
-        show_result(customer, rows, uploaded.name)
+        render(parse_order(extracted, RULES), key="image")
     else:
-        st.error("No readable text detected in the uploaded image.")
-
+        st.error("No readable text was detected in this image.")
 elif process_text and text_input.strip():
-    customer, rows = parse_order(text_input)
-    show_result(customer, rows, "text")
+    render(parse_order(text_input, RULES), key="text")
 
-st.divider()
-st.info("Rule: only product text is mapped. A customer code such as CFS-XXXX is not searched or matched to any product.")
+st.info(f"Item master loaded: {len(PRODUCTS)} SAP items. The parser can never output a code outside this list.")

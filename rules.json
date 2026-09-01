@@ -1,24 +1,326 @@
 {
   "product_aliases": [
-    {"alias":"50/50","code":"FG-03-0024"},{"alias":"50/50 shredd","code":"FG-03-0024"},{"alias":"50/50 shredded","code":"FG-03-0024"},
-    {"alias":"imported 50/50 shredd","code":"FG-03-0024"},{"alias":"imported 50/50 shredded","code":"FG-03-0024"},
-    {"alias":"classic shredd","code":"FG-02-0036"},{"alias":"classic shredded","code":"FG-02-0036"},{"alias":"classic mozzarella shredd","code":"FG-02-0036"},{"alias":"classic mozzarella shredded","code":"FG-02-0036"},{"alias":"classic cheddar shredd","code":"FG-02-0036"},{"alias":"classic cheddar shredded","code":"FG-02-0036"},
-    {"alias":"top cow white dice","code":"FG-02-0048"},{"alias":"top cow white shredd","code":"FG-02-0048"},{"alias":"top cow white shredded","code":"FG-02-0048"},{"alias":"top cow yellow dice","code":"FG-02-0049"},{"alias":"top cow yellow shredd","code":"FG-02-0049"},{"alias":"top cow yellow shredded","code":"FG-02-0049"},
-    {"alias":"classic 70/30 shredd","code":"FG-02-0072"},{"alias":"classic 70/30 shredded","code":"FG-02-0072"},{"alias":"danish mozzarella shredd","code":"FG-01-0030"},{"alias":"imported uk mozzarella shredd","code":"FG-01-0036"},{"alias":"imp uk mozzarella shredd","code":"FG-01-0036"},
-    {"alias":"imp 70/30 shredd","code":"FG-03-0006"},{"alias":"imp 70/30 shredded","code":"FG-03-0006"},{"alias":"imp 70/30 dice","code":"FG-03-0026"},{"alias":"achha mozzarella shredded white","code":"FG-01-0042"},{"alias":"achha mozzarella shredded yellow","code":"FG-01-0054"},{"alias":"achha white dice","code":"FG-01-0124"},{"alias":"achha yellow dice","code":"FG-01-0125"},{"alias":"local 70/30 shredd","code":"FG-03-0018"},{"alias":"new 70/30 shredd","code":"FG-02-0051"},{"alias":"latina mozzarella shredd","code":"FG-01-0066"},{"alias":"silver mozzarella shredd","code":"FG-01-0110"},{"alias":"verona mozzarella shredd","code":"FG-01-0072"},{"alias":"pizza topping shredd","code":"FG-02-0064"},
-    {"alias":"classic cheddar block","code":"FG-02-0012"},{"alias":"top cow cheddar block","code":"FG-02-0068"},{"alias":"pizza cheddar block","code":"FG-02-0006"},{"alias":"regular cheddar block","code":"FG-02-0018"},{"alias":"top cow mozzarella block white","code":"FG-02-0060"},{"alias":"classic mozzarella block","code":"FG-01-0012"},{"alias":"danish mozzarella block","code":"FG-01-0018"},{"alias":"achha mozzarella block","code":"FG-01-0006"},{"alias":"silver mozzarella block","code":"FG-01-0111"},{"alias":"verona mozzarella block","code":"FG-03-0025"},{"alias":"pizza topping block","code":"FG-02-0065"},
-    {"alias":"yellow slice 1kg","code":"FG-02-0028"},{"alias":"white slice 1kg","code":"FG-02-0023"},{"alias":"jalepeno cheddar slice 1kg","code":"FG-02-0039"},{"alias":"yellow slice 800gm","code":"FG-02-0038"},{"alias":"white slice 800gm","code":"FG-02-0037"},
-    {"alias":"butter white 82 fat","code":"FG-06-0004"},{"alias":"butter yellow 82 fat","code":"FG-06-0011"},{"alias":"butter white 87 fat","code":"FG-06-0017"},{"alias":"butter yellow 87 fat","code":"FG-06-0018"},{"alias":"butter white 500gm","code":"FG-06-0003"},{"alias":"butter yellow 500gm","code":"FG-06-0010"},
-    {"alias":"desi ghee tin 500gm","code":"FG-05-0002"},{"alias":"desi ghee poly bag 1kg","code":"FG-05-0011"},{"alias":"desi ghee tin 16kg","code":"FG-05-0005"}
+    {
+      "alias": "50/50",
+      "code": "FG-03-0024",
+      "source": "seed"
+    },
+    {
+      "alias": "50/50 shredd",
+      "code": "FG-03-0024",
+      "source": "seed"
+    },
+    {
+      "alias": "50/50 shredded",
+      "code": "FG-03-0024",
+      "source": "seed"
+    },
+    {
+      "alias": "imported 50/50 shredd",
+      "code": "FG-03-0024",
+      "source": "seed"
+    },
+    {
+      "alias": "imported 50/50 shredded",
+      "code": "FG-03-0024",
+      "source": "seed"
+    },
+    {
+      "alias": "classic shredd",
+      "code": "FG-02-0036",
+      "source": "seed"
+    },
+    {
+      "alias": "classic shredded",
+      "code": "FG-02-0036",
+      "source": "seed"
+    },
+    {
+      "alias": "classic mozzarella shredd",
+      "code": "FG-02-0036",
+      "source": "seed"
+    },
+    {
+      "alias": "classic mozzarella shredded",
+      "code": "FG-02-0036",
+      "source": "seed"
+    },
+    {
+      "alias": "classic cheddar shredd",
+      "code": "FG-02-0036",
+      "source": "seed"
+    },
+    {
+      "alias": "classic cheddar shredded",
+      "code": "FG-02-0036",
+      "source": "seed"
+    },
+    {
+      "alias": "top cow white dice",
+      "code": "FG-02-0048",
+      "source": "seed"
+    },
+    {
+      "alias": "top cow white shredd",
+      "code": "FG-02-0048",
+      "source": "seed"
+    },
+    {
+      "alias": "top cow white shredded",
+      "code": "FG-02-0048",
+      "source": "seed"
+    },
+    {
+      "alias": "top cow yellow dice",
+      "code": "FG-02-0049",
+      "source": "seed"
+    },
+    {
+      "alias": "top cow yellow shredd",
+      "code": "FG-02-0049",
+      "source": "seed"
+    },
+    {
+      "alias": "top cow yellow shredded",
+      "code": "FG-02-0049",
+      "source": "seed"
+    },
+    {
+      "alias": "classic 70/30 shredd",
+      "code": "FG-02-0072",
+      "source": "seed"
+    },
+    {
+      "alias": "classic 70/30 shredded",
+      "code": "FG-02-0072",
+      "source": "seed"
+    },
+    {
+      "alias": "danish mozzarella shredd",
+      "code": "FG-01-0030",
+      "source": "seed"
+    },
+    {
+      "alias": "imported uk mozzarella shredd",
+      "code": "FG-01-0036",
+      "source": "seed"
+    },
+    {
+      "alias": "imp uk mozzarella shredd",
+      "code": "FG-01-0036",
+      "source": "seed"
+    },
+    {
+      "alias": "imp 70/30 shredd",
+      "code": "FG-03-0006",
+      "source": "seed"
+    },
+    {
+      "alias": "imp 70/30 shredded",
+      "code": "FG-03-0006",
+      "source": "seed"
+    },
+    {
+      "alias": "imp 70/30 dice",
+      "code": "FG-03-0026",
+      "source": "seed"
+    },
+    {
+      "alias": "achha mozzarella shredded white",
+      "code": "FG-01-0042",
+      "source": "seed"
+    },
+    {
+      "alias": "achha mozzarella shredded yellow",
+      "code": "FG-01-0054",
+      "source": "seed"
+    },
+    {
+      "alias": "achha white dice",
+      "code": "FG-01-0124",
+      "source": "seed"
+    },
+    {
+      "alias": "achha yellow dice",
+      "code": "FG-01-0125",
+      "source": "seed"
+    },
+    {
+      "alias": "local 70/30 shredd",
+      "code": "FG-03-0018",
+      "source": "seed"
+    },
+    {
+      "alias": "new 70/30 shredd",
+      "code": "FG-02-0051",
+      "source": "seed"
+    },
+    {
+      "alias": "latina mozzarella shredd",
+      "code": "FG-01-0066",
+      "source": "seed"
+    },
+    {
+      "alias": "silver mozzarella shredd",
+      "code": "FG-01-0110",
+      "source": "seed"
+    },
+    {
+      "alias": "verona mozzarella shredd",
+      "code": "FG-01-0072",
+      "source": "seed"
+    },
+    {
+      "alias": "pizza topping shredd",
+      "code": "FG-02-0064",
+      "source": "seed"
+    },
+    {
+      "alias": "classic cheddar block",
+      "code": "FG-02-0012",
+      "source": "seed"
+    },
+    {
+      "alias": "top cow cheddar block",
+      "code": "FG-02-0068",
+      "source": "seed"
+    },
+    {
+      "alias": "pizza cheddar block",
+      "code": "FG-02-0006",
+      "source": "seed"
+    },
+    {
+      "alias": "regular cheddar block",
+      "code": "FG-02-0018",
+      "source": "seed"
+    },
+    {
+      "alias": "top cow mozzarella block white",
+      "code": "FG-02-0060",
+      "source": "seed"
+    },
+    {
+      "alias": "classic mozzarella block",
+      "code": "FG-01-0012",
+      "source": "seed"
+    },
+    {
+      "alias": "danish mozzarella block",
+      "code": "FG-01-0018",
+      "source": "seed"
+    },
+    {
+      "alias": "achha mozzarella block",
+      "code": "FG-01-0006",
+      "source": "seed"
+    },
+    {
+      "alias": "silver mozzarella block",
+      "code": "FG-01-0111",
+      "source": "seed"
+    },
+    {
+      "alias": "verona mozzarella block",
+      "code": "FG-03-0025",
+      "source": "seed"
+    },
+    {
+      "alias": "pizza topping block",
+      "code": "FG-02-0065",
+      "source": "seed"
+    },
+    {
+      "alias": "yellow slice 1kg",
+      "code": "FG-02-0028",
+      "source": "seed"
+    },
+    {
+      "alias": "white slice 1kg",
+      "code": "FG-02-0023",
+      "source": "seed"
+    },
+    {
+      "alias": "jalepeno cheddar slice 1kg",
+      "code": "FG-02-0039",
+      "source": "seed"
+    },
+    {
+      "alias": "yellow slice 800gm",
+      "code": "FG-02-0038",
+      "source": "seed"
+    },
+    {
+      "alias": "white slice 800gm",
+      "code": "FG-02-0037",
+      "source": "seed"
+    },
+    {
+      "alias": "butter white 82 fat",
+      "code": "FG-06-0004",
+      "source": "seed"
+    },
+    {
+      "alias": "butter yellow 82 fat",
+      "code": "FG-06-0011",
+      "source": "seed"
+    },
+    {
+      "alias": "butter white 87 fat",
+      "code": "FG-06-0017",
+      "source": "seed"
+    },
+    {
+      "alias": "butter yellow 87 fat",
+      "code": "FG-06-0018",
+      "source": "seed"
+    },
+    {
+      "alias": "butter white 500gm",
+      "code": "FG-06-0003",
+      "source": "seed"
+    },
+    {
+      "alias": "butter yellow 500gm",
+      "code": "FG-06-0010",
+      "source": "seed"
+    },
+    {
+      "alias": "desi ghee tin 500gm",
+      "code": "FG-05-0002",
+      "source": "seed"
+    },
+    {
+      "alias": "desi ghee poly bag 1kg",
+      "code": "FG-05-0011",
+      "source": "seed"
+    },
+    {
+      "alias": "desi ghee tin 16kg",
+      "code": "FG-05-0005",
+      "source": "seed"
+    }
   ],
   "quantity_rules": [],
   "customer_rules": [],
   "general_rules": [
-    {"rule":"This operational order mapping is authoritative for parsing."},
-    {"rule":"Respect product form: Dice stays Dice, Shredd stays Shredd, Block stays Block, except Top Cow where White Shredd=White Dice and Yellow Shredd=Yellow Dice."},
-    {"rule":"Classic shredd ALWAYS maps to FG-02-0036."},
-    {"rule":"Top Cow White Shredd/Dice maps to FG-02-0048; Top Cow Yellow Shredd/Dice maps to FG-02-0049."},
-    {"rule":"Achha White Dice maps to FG-01-0124."},
-    {"rule":"Do not allow generic fuzzy matching to override these explicit mappings."}
+    {
+      "rule": "This operational order mapping is authoritative for parsing."
+    },
+    {
+      "rule": "Respect product form: Dice stays Dice, Shredd stays Shredd, Block stays Block, except Top Cow where White Shredd=White Dice and Yellow Shredd=Yellow Dice."
+    },
+    {
+      "rule": "Classic shredd ALWAYS maps to FG-02-0036."
+    },
+    {
+      "rule": "Top Cow White Shredd/Dice maps to FG-02-0048; Top Cow Yellow Shredd/Dice maps to FG-02-0049."
+    },
+    {
+      "rule": "Achha White Dice maps to FG-01-0124."
+    },
+    {
+      "rule": "Do not allow generic fuzzy matching to override these explicit mappings."
+    }
   ]
 }
